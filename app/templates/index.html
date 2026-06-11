@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Reviews</h1>
+{% if reviews %}
+<table>
+  <tr>
+    <th>CSP</th><th>Service</th><th>Model / feature</th><th>Requested by</th>
+    <th>Status</th><th>Checklist</th><th>Created</th>
+  </tr>
+  {% for r in reviews %}
+  <tr>
+    <td><span class="badge {{ r.csp }}">{{ r.csp | upper }}</span></td>
+    <td>{{ r.service_name }}</td>
+    <td><a href="/reviews/{{ r.id }}">{{ r.model_name }}{% if r.model_version %} ({{ r.model_version }}){% endif %}</a></td>
+    <td>{{ r.requested_by or "—" }}</td>
+    <td><span class="badge {{ r.status }}">{{ r.status | replace("_", " ") }}</span></td>
+    <td>
+      <span class="progressbar"><div style="width: {{ (100 * r.progress.done / r.progress.total) | round }}%"></div></span>
+      <span class="meta">{{ r.progress.done }}/{{ r.progress.total }}</span>
+    </td>
+    <td class="meta">{{ r.created_at[:10] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card">No reviews yet. <a href="/reviews/new">Create the first one</a>.</div>
+{% endif %}
+{% endblock %}

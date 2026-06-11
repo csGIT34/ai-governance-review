@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Governance Review</title>
+  <style>
+    :root { --ink: #1a1d23; --muted: #6b7280; --line: #e5e7eb; --accent: #2563eb;
+            --pass: #16a34a; --fail: #dc2626; --warn: #d97706; --bg: #f8fafc; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, "Segoe UI", sans-serif; margin: 0; color: var(--ink); background: var(--bg); }
+    nav { background: #0f172a; color: #fff; padding: 0.8rem 1.5rem; display: flex; gap: 1.5rem; align-items: baseline; }
+    nav a { color: #fff; text-decoration: none; }
+    nav .brand { font-weight: 700; font-size: 1.05rem; }
+    nav a.btn { background: var(--accent); padding: 0.35rem 0.9rem; border-radius: 6px; font-size: 0.9rem; margin-left: auto; }
+    main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
+    h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); font-size: 0.92rem; }
+    th { background: #f1f5f9; font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    a { color: var(--accent); }
+    .badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+    .badge.azure { background: #dbeafe; color: #1d4ed8; }
+    .badge.gcp { background: #fee2e2; color: #b91c1c; }
+    .badge.in_review { background: #fef3c7; color: #92400e; }
+    .badge.approved { background: #dcfce7; color: #166534; }
+    .badge.conditional { background: #ffedd5; color: #9a3412; }
+    .badge.rejected { background: #fee2e2; color: #991b1b; }
+    .badge.blocker { background: #fee2e2; color: #991b1b; }
+    .badge.required { background: #fef3c7; color: #92400e; }
+    .badge.recommended { background: #e0e7ff; color: #3730a3; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin: 0.7rem 0 0.2rem; }
+    input[type=text], input[type=date], select, textarea {
+      width: 100%; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; font-size: 0.9rem; }
+    textarea { min-height: 60px; resize: vertical; }
+    button, .btn { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1.1rem;
+      border-radius: 6px; font: inherit; font-size: 0.9rem; cursor: pointer; }
+    button.secondary { background: #475569; }
+    .item { border-top: 1px solid var(--line); padding: 0.8rem 0; }
+    .item .head { display: flex; gap: 0.6rem; align-items: baseline; }
+    .item .guidance { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0.5rem; }
+    .item .csp-note { font-size: 0.85rem; margin: 0.15rem 0; }
+    .item .controls { display: grid; grid-template-columns: 160px 1fr 1fr; gap: 0.6rem; }
+    .item select.s-pass { border-color: var(--pass); } .item select.s-fail { border-color: var(--fail); }
+    .error { background: #fee2e2; color: #991b1b; padding: 0.7rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    .meta { color: var(--muted); font-size: 0.85rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 0.8rem; border-radius: 6px; font-size: 0.8rem; overflow-x: auto; max-height: 320px; }
+    .progressbar { background: var(--line); border-radius: 999px; height: 8px; width: 120px; display: inline-block; vertical-align: middle; }
+    .progressbar > div { background: var(--accent); height: 8px; border-radius: 999px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a class="brand" href="/">AI Governance Review</a>
+    <span class="meta" style="color:#94a3b8">Azure &amp; GCP model/feature enablement reviews</span>
+    <a class="btn" href="/reviews/new">+ New review</a>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

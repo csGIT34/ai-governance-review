@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New enablement review</h1>
+<div class="card">
+  <form method="post" action="/reviews">
+    <div class="grid2">
+      <div>
+        <label>Cloud provider</label>
+        <select name="csp" required>
+          <option value="azure">Azure</option>
+          <option value="gcp">GCP</option>
+        </select>
+      </div>
+      <div>
+        <label>Service</label>
+        <input type="text" name="service_name" required
+               placeholder="e.g. Azure OpenAI / Azure AI Foundry / Vertex AI">
+      </div>
+      <div>
+        <label>Model or feature</label>
+        <input type="text" name="model_name" required
+               placeholder="e.g. gpt-4.1, gemini-2.5-flash, Batch API">
+      </div>
+      <div>
+        <label>Model version (if pinning)</label>
+        <input type="text" name="model_version" placeholder="e.g. 2025-04-14">
+      </div>
+      <div>
+        <label>Target regions (comma-separated)</label>
+        <input type="text" name="regions" placeholder="e.g. eastus2, swedencentral">
+      </div>
+      <div>
+        <label>Requested by</label>
+        <input type="text" name="requested_by" placeholder="Team or person">
+      </div>
+    </div>
+    <label>Business justification</label>
+    <textarea name="justification"
+              placeholder="What capability gap does this fill vs already-enabled models?"></textarea>
+    <p><button type="submit">Create review</button></p>
+  </form>
+</div>
+{% endblock %}

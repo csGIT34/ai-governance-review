@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<h1>
+  <span class="badge {{ r.csp }}">{{ r.csp | upper }}</span>
+  {{ r.service_name }} — {{ r.model_name }}{% if r.model_version %} ({{ r.model_version }}){% endif %}
+  <span class="badge {{ r.status }}">{{ r.status | replace("_", " ") }}</span>
+</h1>
+
+<div class="card">
+  <div class="grid2">
+    <div>
+      <p class="meta">Requested by <strong>{{ r.requested_by or "—" }}</strong>
+         · regions: <strong>{{ r.regions or "—" }}</strong>
+         · created {{ r.created_at[:10] }} · checklist v{{ r.checklist_version }}</p>
+      <p>{{ r.justification or "" }}</p>
+    </div>
+    <div style="text-align:right">
+      <p>
+        <span class="progressbar"><div style="width: {{ (100 * progress.done / progress.total) | round }}%"></div></span>
+        <span class="meta">{{ progress.done }}/{{ progress.total }} items reviewed</span>
+      </p>
+      {% if blocker_gaps %}
+        <p class="meta"><span class="badge blocker">{{ blocker_gaps | length }} blocker(s) open</span>
+        {% for g in blocker_gaps %}{{ g.id }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+      {% else %}
+        <p class="meta"><span class="badge approved">All blockers cleared</span></p>
+      {% endif %}
+      <p><a href="/reviews/{{ r.id }}/export">Export JSON</a></p>
+    </div>
+  </div>
+</div>
+
+<h2>CSP catalog enrichment</h2>
+<div class="card">
+  {% if r.enrichment %}
+    {% if r.enrichment.error %}
+      <p class="error">{{ r.enrichment.error }}</p>
+    {% else %}
+      <p class="meta">Snapshot from <strong>{{ r.enrichment.source }}</strong> at {{ r.enrichment.fetched_at }}</p>
+      <pre>{{ r.enrichment | tojson(indent=2) }}</pre>
+    {% endif %}
+  {% else %}
+    <p class="meta">No catalog snapshot yet. Pulls lifecycle status, deprecation dates and
+    capabilities from the {{ "Azure model catalog" if r.csp == "azure" else "Vertex AI publisher catalog" }}
+    and stores them on this review as point-in-time evidence.</p>
+  {% endif %}
+  <form method="post" action="/reviews/{{ r.id }}/enrich">
+    <button type="submit" class="secondary">{{ "Refresh" if r.enrichment else "Fetch" }} catalog snapshot</button>
+  </form>
+</div>
+
+<h2>Review checklist</h2>
+<form method="post" action="/reviews/{{ r.id }}/checklist">
+  {% for cat in categories %}
+  <div class="card">
+    <h2 style="margin-top:0">{{ cat }}</h2>
+    {% for item in items if item.category == cat %}
+    {% set resp = r.checklist[item.id] %}
+    <div class="item">
+      <div class="head">
+        <strong>{{ item.id }}</strong>
+        <span>{{ item.title }}</span>
+        <span class="badge {{ item.severity }}">{{ item.severity }}</span>
+      </div>
+      <p class="guidance">{{ item.guidance }}</p>
+      {% if item.azure and r.csp == "azure" %}<p class="csp-note">☁️ <strong>Azure:</strong> {{ item.azure }}</p>{% endif %}
+      {% if item.gcp and r.csp == "gcp" %}<p class="csp-note">☁️ <strong>GCP:</strong> {{ item.gcp }}</p>{% endif %}
+      <div class="controls">
+        <select name="status__{{ item.id }}" class="s-{{ resp.status }}">
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if resp.status == s %}selected{% endif %}>
+            {{ {"unreviewed": "— Unreviewed", "pass": "✔ Pass", "fail": "✘ Fail",
+                "na": "N/A", "needs_info": "? Needs info"}[s] }}
+          </option>
+          {% endfor %}
+        </select>
+        <input type="text" name="notes__{{ item.id }}" value="{{ resp.notes }}" placeholder="Notes / findings">
+        <input type="text" name="evidence__{{ item.id }}" value="{{ resp.evidence }}" placeholder="Evidence link (doc URL, artifact name)">
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <p><button type="submit">Save checklist</button></p>
+</form>
+
+<h2>Artifacts</h2>
+<div class="card">
+  {% if r.artifacts %}
+  <table>
+    <tr><th>File</th><th>Size</th><th>Uploaded</th></tr>
+    {% for a in r.artifacts %}
+    <tr>
+      <td><a href="/reviews/{{ r.id }}/artifacts/{{ a.name }}">{{ a.name }}</a></td>
+      <td class="meta">{{ (a.size / 1024) | round(1) }} KB</td>
+      <td class="meta">{{ a.uploaded_at[:19] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="meta">No artifacts yet. Upload evidence: screenshots, pricing sheets, exported terms, benchmark results.</p>
+  {% endif %}
+  <form method="post" action="/reviews/{{ r.id }}/artifacts" enctype="multipart/form-data" style="margin-top:0.8rem">
+    <input type="file" name="file" required>
+    <button type="submit" class="secondary">Upload</button>
+  </form>
+</div>
+
+<h2>Decision</h2>
+<div class="card">
+  {% if r.decision %}
+  <p>
+    <span class="badge {{ r.decision.outcome }}">{{ r.decision.outcome | replace("_", " ") }}</span>
+    by <strong>{{ r.decision.approver }}</strong> on {{ r.decision.decided_at[:10] }}
+    {% if r.decision.re_review_date %} · re-review by <strong>{{ r.decision.re_review_date }}</strong>{% endif %}
+  </p>
+  {% if r.decision.conditions %}<p><strong>Conditions:</strong> {{ r.decision.conditions }}</p>{% endif %}
+  <hr style="border:none;border-top:1px solid var(--line)">
+  <p class="meta">Record a new decision to supersede:</p>
+  {% endif %}
+  <form method="post" action="/reviews/{{ r.id }}/decision">
+    <div class="grid2">
+      <div>
+        <label>Outcome</label>
+        <select name="outcome" required>
+          <option value="approved">Approved</option>
+          <option value="conditional">Approved with conditions</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div>
+        <label>Approver</label>
+        <input type="text" name="approver" required placeholder="Your name">
+      </div>
+      <div>
+        <label>Re-review date</label>
+        <input type="date" name="re_review_date">
+      </div>
+    </div>
+    <label>Conditions / rationale</label>
+    <textarea name="conditions"
+              placeholder="Required for conditional approvals: what must be done, by whom, by when."></textarea>
+    <p><button type="submit">Record decision</button></p>
+  </form>
+</div>
+
+{% endblock %}
