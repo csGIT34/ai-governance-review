@@ -43,21 +43,30 @@ def enrich(model_name: str, region: str) -> dict:
         return {"error": f"Azure model catalog request failed: {err}"}
 
     needle = model_name.lower().strip()
-    matches = []
+    # The catalog lists each model once per account kind (OpenAI, AIServices)
+    # with identical details; merge those into one entry per (name, version).
+    by_key = {}
     for entry in resp.json().get("value", []):
         model = entry.get("model", {})
-        if needle in model.get("name", "").lower():
-            matches.append({
-                "name": model.get("name"),
-                "version": model.get("version"),
-                "format": model.get("format"),
-                "kind": entry.get("kind"),
-                "lifecycle_status": model.get("lifecycleStatus"),
-                "deprecation": model.get("deprecation"),
-                "max_capacity": model.get("maxCapacity"),
-                "capabilities": model.get("capabilities"),
-                "skus": [s.get("name") for s in model.get("skus", [])],
-            })
+        if needle not in model.get("name", "").lower():
+            continue
+        key = (model.get("name"), model.get("version"))
+        if key in by_key:
+            if entry.get("kind") not in by_key[key]["kinds"]:
+                by_key[key]["kinds"].append(entry.get("kind"))
+            continue
+        by_key[key] = {
+            "name": model.get("name"),
+            "version": model.get("version"),
+            "format": model.get("format"),
+            "kinds": [entry.get("kind")],
+            "lifecycle_status": model.get("lifecycleStatus"),
+            "deprecation": model.get("deprecation"),
+            "max_capacity": model.get("maxCapacity"),
+            "capabilities": model.get("capabilities"),
+            "skus": sorted({s.get("name") for s in model.get("skus", [])}),
+        }
+    matches = list(by_key.values())
 
     return {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
