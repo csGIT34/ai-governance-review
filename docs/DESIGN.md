@@ -167,6 +167,13 @@ Fourteen categories, ~45 items. Each item has a severity:
 Enrichment is optional: with no credentials configured, the button reports why and the review
 proceeds manually. Snapshots are stored on the review document for the historical record.
 
+Catalog facts that directly answer checklist items are auto-filled with `[auto]`-prefixed notes
+and the snapshot as evidence: **A2** (exact identity confirmed / version ambiguity flagged),
+**B1** (GA → pass; preview → needs-info, since enabling previews is a policy decision), and
+**B2** (Azure retirement dates; the Vertex catalog doesn't expose them). Auto-fill only touches
+items still *unreviewed* — reviewer input is never overwritten — and each snapshot records which
+items it updated (`checklist_updates`). Everything else stays a human judgment.
+
 ## Out of scope for the POC (deliberate)
 
 - AuthN/AuthZ on the app itself (add Entra ID auth via Container Apps built-in auth at deploy time).

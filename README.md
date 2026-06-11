@@ -31,7 +31,9 @@ not `docker compose down`. Use `docker compose stop`/`start` to keep data.
 1. **New review** — capture CSP, service, model/feature, regions, requester, justification.
 2. **Fetch catalog snapshot** — pulls lifecycle status, deprecation dates, capabilities from the
    Azure model catalog or Vertex AI publisher catalog and stores them on the review (optional,
-   needs credentials — see below).
+   needs credentials — see below). Facts the catalog can answer are auto-filled into the
+   checklist (A2 identity, B1 GA/preview, B2 retirement dates) without ever overwriting
+   reviewer input.
 3. **Work the checklist** — 14 categories, ~45 items, each Pass / Fail / N/A / Needs info with
    notes and evidence links. CSP-specific guidance is shown per item.
 4. **Upload artifacts** — screenshots, pricing sheets, exported terms (stored in Blob Storage).

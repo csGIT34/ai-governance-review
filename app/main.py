@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import checklist
 from app.db import blob, cosmos
-from app.enrichment import azure_catalog, gcp_catalog
+from app.enrichment import apply, azure_catalog, gcp_catalog
 
 logging.basicConfig(level=logging.INFO)
 
@@ -139,6 +139,9 @@ def enrich(review_id: str):
         snapshot = azure_catalog.enrich(doc["model_name"], region)
     else:
         snapshot = gcp_catalog.enrich(doc["model_name"])
+    if not snapshot.get("error"):
+        applier = apply.apply_azure if doc["csp"] == "azure" else apply.apply_gcp
+        snapshot["checklist_updates"] = applier(snapshot, doc)
     doc["enrichment"] = snapshot
     doc["updated_at"] = now()
     cosmos.save_review(doc)
