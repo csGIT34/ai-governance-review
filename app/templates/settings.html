@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<h2>Reference documents</h2>
+<p class="meta">
+  The CSP terms/privacy pages snapshotted into every review by the &ldquo;Fetch reference docs&rdquo;
+  button, and the checklist items each one is linked to as evidence. Edit a URL here if a page
+  moves, or add new documents per CSP. Changes are stored in the database and apply immediately.
+  {% if customized %}Currently using a <strong>customized</strong> list.{% else %}Currently using the bundled defaults.{% endif %}
+</p>
+<p class="meta">
+  Note: docs marked <em>standard positions</em> auto-fill answers only while the live page still
+  matches the snapshot it was validated against. If you change such a URL, positions are safely
+  skipped (items get <em>needs info</em>) until the new page is re-validated.
+</p>
+{% if customized %}
+<form method="post" action="/settings/reference-docs/reset" style="margin-bottom:1rem">
+  <button class="secondary" onclick="return confirm('Discard all edits and return to the bundled defaults?')">Reset to defaults</button>
+</form>
+{% endif %}
+
+{% for csp, refs in docs.items() %}
+<h2><span class="badge {{ csp }}">{{ "INTERNAL" if csp == "internal" else csp | upper }}</span>
+  {% if csp == "internal" %}<span class="meta" style="font-weight:normal">Internal documents</span>{% endif %}</h2>
+{% if csp == "internal" %}
+<p class="meta">
+  Your own policies, standards and intranet pages. They apply to every review regardless of CSP
+  and are <strong>linked</strong> as evidence on the mapped checklist items when reference docs
+  are fetched &mdash; not snapshotted, since intranet pages usually require sign-in.
+</p>
+{% endif %}
+{% if refs %}
+<form method="post" action="/settings/reference-docs/save" class="card">
+  <input type="hidden" name="csp" value="{{ csp }}">
+  {% for ref in refs %}
+  <div style="display:grid; grid-template-columns: 1.2fr 2fr 0.7fr auto; gap:0.6rem; align-items:start; {% if not loop.first %}border-top:1px solid var(--line);{% endif %} padding:0.6rem 0;">
+    <div>
+      <label>Title</label>
+      <input type="text" name="title__{{ ref.slug }}" value="{{ ref.title }}">
+      <div class="meta" style="margin-top:0.25rem">
+        {{ ref.slug }}{% if ref.positions %} &middot; standard positions{% endif %}{% if ref.validated %} &middot; validated {{ ref.validated }}{% endif %}
+      </div>
+    </div>
+    <div class="urlcell">
+      <label>URL</label>
+      <input type="text" name="url__{{ ref.slug }}" value="{{ ref.url }}">
+      <div class="meta" style="margin-top:0.25rem">
+        <button type="button" class="linklike" onclick="openUrl(this)">Open &nearr;</button> &middot;
+        <button type="button" class="linklike" onclick="checkUrl(this)">Check</button>
+        <span class="check-result"></span>
+      </div>
+    </div>
+    <div>
+      <label>Checklist items</label>
+      <input type="text" name="items__{{ ref.slug }}" value="{{ ref['items'] | join(', ') }}">
+    </div>
+    <div style="padding-top:1.6rem">
+      <button class="secondary" name="delete_slug" value="{{ ref.slug }}"
+              formaction="/settings/reference-docs/delete" formnovalidate
+              onclick="return confirm('Remove {{ ref.title }} from this list?')">Remove</button>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="margin-top:0.8rem"><button>Save changes</button></div>
+</form>
+{% else %}
+<div class="card"><p class="meta" style="margin:0">No internal documents yet &mdash; add one below.</p></div>
+{% endif %}
+
+<details class="card">
+  <summary style="cursor:pointer">Add a document</summary>
+  <form method="post" action="/settings/reference-docs/add">
+    <input type="hidden" name="csp" value="{{ csp }}">
+    <label>Title</label>
+    <input type="text" name="title" required>
+    <div class="urlcell">
+      <label>URL</label>
+      <input type="text" name="url" required placeholder="https://...">
+      <div class="meta" style="margin-top:0.25rem">
+        <button type="button" class="linklike" onclick="openUrl(this)">Open &nearr;</button> &middot;
+        <button type="button" class="linklike" onclick="checkUrl(this)">Check</button>
+        <span class="check-result"></span>
+      </div>
+    </div>
+    <label>Checklist items (comma-separated ids, e.g. C1, E3 &mdash; linked as evidence when fetched)</label>
+    <input type="text" name="items">
+    <div style="margin-top:0.8rem"><button>Add document</button></div>
+  </form>
+</details>
+{% endfor %}
+
+<script>
+function openUrl(btn) {
+  const u = btn.closest('.urlcell').querySelector('input').value.trim();
+  if (u) window.open(u, '_blank');
+}
+async function checkUrl(btn) {
+  const cell = btn.closest('.urlcell');
+  const u = cell.querySelector('input').value.trim();
+  const out = cell.querySelector('.check-result');
+  out.style.color = 'var(--muted)';
+  out.textContent = 'checking…';
+  try {
+    const r = await fetch('/api/check-url?url=' + encodeURIComponent(u));
+    const d = await r.json();
+    out.textContent = (d.ok ? '✓ ' : '✗ ') + d.detail;
+    out.style.color = d.ok ? 'var(--pass)' : 'var(--fail)';
+  } catch (e) {
+    out.textContent = '✗ ' + e;
+    out.style.color = 'var(--fail)';
+  }
+}
+</script>
+{% endblock %}

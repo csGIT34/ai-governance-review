@@ -8,6 +8,7 @@ Requires AZURE_SUBSCRIPTION_ID and credentials resolvable by
 DefaultAzureCredential (env service principal locally, managed identity on
 Azure Container Apps).
 """
+import difflib
 from datetime import datetime, timezone
 
 import httpx
@@ -17,15 +18,16 @@ from app import config
 API_VERSION = "2024-10-01"
 
 
-def enrich(model_name: str, region: str) -> dict:
+def _fetch_entries(region: str) -> tuple[list | None, str | None]:
+    """Raw catalog entries for a region, or an error message."""
     if not config.AZURE_SUBSCRIPTION_ID:
-        return {"error": "AZURE_SUBSCRIPTION_ID is not set; Azure enrichment is disabled. "
-                         "Fill in the checklist manually or configure credentials (see README)."}
+        return None, ("AZURE_SUBSCRIPTION_ID is not set; Azure enrichment is disabled. "
+                      "Fill in the checklist manually or configure credentials (see README).")
     try:
         from azure.identity import DefaultAzureCredential
         token = DefaultAzureCredential().get_token("https://management.azure.com/.default").token
     except Exception as err:
-        return {"error": f"Could not acquire Azure credentials: {err}"}
+        return None, f"Could not acquire Azure credentials: {err}"
 
     url = (
         f"https://management.azure.com/subscriptions/{config.AZURE_SUBSCRIPTION_ID}"
@@ -40,14 +42,42 @@ def enrich(model_name: str, region: str) -> dict:
         )
         resp.raise_for_status()
     except Exception as err:
-        return {"error": f"Azure model catalog request failed: {err}"}
+        return None, f"Azure model catalog request failed: {err}"
+    return resp.json().get("value", []), None
+
+
+def list_models(region: str) -> dict:
+    """Distinct model ids in a region with company (format) and versions, for the form pickers."""
+    entries, error = _fetch_entries(region)
+    if error:
+        return {"error": error}
+    by_name: dict[str, dict] = {}
+    for entry in entries:
+        model = entry.get("model", {})
+        name = model.get("name")
+        if not name:
+            continue
+        m = by_name.setdefault(name, {"name": name, "format": model.get("format"), "versions": set()})
+        if model.get("version"):
+            m["versions"].add(model["version"])
+    return {"models": [{**by_name[n], "versions": sorted(by_name[n]["versions"])}
+                       for n in sorted(by_name)]}
+
+
+def enrich(model_name: str, region: str) -> dict:
+    entries, error = _fetch_entries(region)
+    if error:
+        return {"error": error}
 
     needle = model_name.lower().strip()
     # The catalog lists each model once per account kind (OpenAI, AIServices)
     # with identical details; merge those into one entry per (name, version).
     by_key = {}
-    for entry in resp.json().get("value", []):
+    all_names = set()
+    for entry in entries:
         model = entry.get("model", {})
+        if model.get("name"):
+            all_names.add(model["name"])
         if needle not in model.get("name", "").lower():
             continue
         key = (model.get("name"), model.get("version"))
@@ -68,10 +98,15 @@ def enrich(model_name: str, region: str) -> dict:
         }
     matches = list(by_key.values())
 
-    return {
+    snapshot = {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "source": f"Azure model catalog ({region}, api-version {API_VERSION})",
         "query": model_name,
         "match_count": len(matches),
         "models": matches,
     }
+    if not matches:
+        lower = {n.lower(): n for n in all_names}
+        close = difflib.get_close_matches(needle, lower, n=8, cutoff=0.4)
+        snapshot["suggestions"] = [lower[c] for c in close]
+    return snapshot

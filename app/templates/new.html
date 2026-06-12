@@ -2,32 +2,44 @@
 {% block content %}
 <h1>New enablement review</h1>
 <div class="card">
+  <p class="meta">The model pickers load live from the CSP catalog — what you pick here is
+  exactly what the enrichment on the review page will find. If the catalog can't be reached
+  (no credentials configured), the pickers fall back to free-text fields.</p>
   <form method="post" action="/reviews">
     <div class="grid2">
       <div>
         <label>Cloud provider</label>
-        <select name="csp" required>
+        <select name="csp" id="csp" required>
           <option value="azure">Azure</option>
           <option value="gcp">GCP</option>
         </select>
       </div>
       <div>
         <label>Service</label>
-        <input type="text" name="service_name" required
-               placeholder="e.g. Azure OpenAI / Azure AI Foundry / Vertex AI">
+        <select name="service_name" id="service" required></select>
       </div>
       <div>
-        <label>Model or feature</label>
-        <input type="text" name="model_name" required
-               placeholder="e.g. gpt-4.1, gemini-2.5-flash, Batch API">
+        <label>🔍 Target regions (comma-separated)</label>
+        <input type="text" name="regions" id="regions" placeholder="e.g. eastus2, swedencentral">
+        <p class="meta">Azure: the first region code (<code>eastus2</code>, not "East US 2")
+        selects the catalog below and is used by enrichment. Ignored for GCP.</p>
       </div>
       <div>
-        <label>Model version (if pinning)</label>
-        <input type="text" name="model_version" placeholder="e.g. 2025-04-14">
+        <label>Model company</label>
+        <select id="company" name="publisher"></select>
+        <p class="meta" id="catalog-status">Loading catalog…</p>
       </div>
       <div>
-        <label>Target regions (comma-separated)</label>
-        <input type="text" name="regions" placeholder="e.g. eastus2, swedencentral">
+        <label>🔍 Model</label>
+        <select name="model_name" id="model-select" required hidden disabled></select>
+        <input type="text" name="model_name" id="model-input" required
+               placeholder="e.g. gpt-4.1, gemini-2.5-flash">
+      </div>
+      <div>
+        <label>🔍 Model version (if pinning)</label>
+        <select name="model_version" id="version-select" hidden disabled></select>
+        <input type="text" name="model_version" id="version-input" placeholder="e.g. 2025-04-14">
+        <p class="meta">Azure only; "(any)" reviews all versions. Ignored by GCP enrichment.</p>
       </div>
       <div>
         <label>Requested by</label>
@@ -40,4 +52,91 @@
     <p><button type="submit">Create review</button></p>
   </form>
 </div>
+
+<script>
+const SERVICES = { azure: ["Azure AI Foundry", "Azure OpenAI"], gcp: ["Vertex AI"] };
+const GCP_PUBLISHERS = {{ gcp_publishers | tojson }};
+
+const csp = document.getElementById("csp");
+const service = document.getElementById("service");
+const regions = document.getElementById("regions");
+const company = document.getElementById("company");
+const modelSelect = document.getElementById("model-select");
+const modelInput = document.getElementById("model-input");
+const versionSelect = document.getElementById("version-select");
+const versionInput = document.getElementById("version-input");
+const statusEl = document.getElementById("catalog-status");
+
+let catalog = [];  // azure: [{name, format, versions}], gcp: [{name, versions: []}]
+
+function setOptions(sel, opts, keep) {
+  const prev = keep ? sel.value : null;
+  sel.replaceChildren(...opts.map(o => Object.assign(document.createElement("option"),
+    typeof o === "string" ? { value: o, textContent: o } : o)));
+  if (prev && [...sel.options].some(x => x.value === prev)) sel.value = prev;
+}
+
+function setMode(pickers) {
+  for (const [sel, inp] of [[modelSelect, modelInput], [versionSelect, versionInput]]) {
+    sel.hidden = sel.disabled = !pickers;
+    inp.hidden = inp.disabled = pickers;
+  }
+  company.disabled = !pickers && csp.value === "azure";
+}
+
+function fallback(msg) {
+  catalog = [];
+  setMode(false);
+  statusEl.textContent = "⚠ " + msg + " Type the ids manually.";
+}
+
+function fillModels() {
+  const list = csp.value === "azure"
+    ? catalog.filter(m => m.format === company.value)
+    : catalog;
+  setOptions(modelSelect, list.map(m => m.name), true);
+  fillVersions();
+}
+
+function fillVersions() {
+  const m = catalog.find(x => x.name === modelSelect.value);
+  setOptions(versionSelect,
+    [{ value: "", textContent: "(any)" }, ...((m && m.versions) || [])]);
+}
+
+async function loadCatalog() {
+  statusEl.textContent = "Loading catalog…";
+  const params = csp.value === "azure"
+    ? "csp=azure&region=" + encodeURIComponent(regions.value.split(",")[0].trim())
+    : "csp=gcp&publisher=" + encodeURIComponent(company.value || "google");
+  try {
+    const data = await (await fetch("/api/catalog-models?" + params)).json();
+    if (data.error) return fallback(data.error);
+    if (!data.models.length) return fallback("Catalog returned no models.");
+    catalog = data.models;
+    if (csp.value === "azure") {
+      setOptions(company, [...new Set(catalog.map(m => m.format).filter(Boolean))].sort(), true);
+    }
+    setMode(true);
+    fillModels();
+    statusEl.textContent = catalog.length + " models loaded from the catalog.";
+  } catch (e) {
+    fallback("Could not load the catalog: " + e);
+  }
+}
+
+function onCspChange() {
+  setOptions(service, SERVICES[csp.value]);
+  if (csp.value === "gcp") setOptions(company, GCP_PUBLISHERS);
+  loadCatalog();
+}
+
+csp.addEventListener("change", onCspChange);
+regions.addEventListener("change", () => { if (csp.value === "azure") loadCatalog(); });
+company.addEventListener("change", () => {
+  if (csp.value === "gcp") loadCatalog(); else fillModels();
+});
+modelSelect.addEventListener("change", fillVersions);
+onCspChange();
+</script>
 {% endblock %}

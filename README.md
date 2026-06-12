@@ -62,6 +62,20 @@ On Azure Container Apps later, drop the SP variables and use the app's **managed
 `GOOGLE_APPLICATION_CREDENTIALS` env var and the ADC volume mount in `docker-compose.yml`, and
 set `GOOGLE_CLOUD_PROJECT` (used as the quota/billing project).
 
+## Reference doc sources
+
+The per-CSP terms/privacy pages snapshotted into each review can be managed on the
+**Settings** page (top nav): edit a URL if a page moves, add or remove docs, and map each
+doc to checklist items. Each doc has **Open**/**Check** buttons to verify the URL still works.
+An **Internal documents** section holds your own policies/intranet pages, which apply to every
+review and are linked as evidence (not snapshotted — intranet pages usually need sign-in).
+Edits are stored in Cosmos and take effect immediately; **Reset to defaults** returns to the
+bundled list.
+
+The bundled defaults (including per-doc standard positions and validation hashes) live in
+`app/enrichment/reference_docs.json`; `REFERENCE_DOCS_PATH` can point the app at a custom
+defaults file without rebuilding the image.
+
 ## Deploying to Azure (later)
 
 The app is a single container; the local emulators map 1:1 to real services:

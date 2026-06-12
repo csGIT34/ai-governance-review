@@ -23,3 +23,10 @@ BLOB_CONTAINER = os.environ.get("BLOB_CONTAINER", "artifacts")
 # Enrichment (optional)
 AZURE_SUBSCRIPTION_ID = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
 GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+
+# Per-CSP reference docs to snapshot (URLs, item mappings, standard positions).
+# Point at a custom copy to change a doc URL or add docs without a code change.
+REFERENCE_DOCS_PATH = os.environ.get(
+    "REFERENCE_DOCS_PATH",
+    os.path.join(os.path.dirname(__file__), "enrichment", "reference_docs.json"),
+)

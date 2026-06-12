@@ -1,7 +1,7 @@
 import logging
 import time
 
-from azure.cosmos import CosmosClient, PartitionKey
+from azure.cosmos import CosmosClient, PartitionKey, exceptions
 
 from app import config
 
@@ -47,7 +47,7 @@ def container():
 def list_reviews():
     return list(
         container().query_items(
-            "SELECT * FROM c ORDER BY c.created_at DESC",
+            "SELECT * FROM c WHERE c.csp != '_settings' ORDER BY c.created_at DESC",
             enable_cross_partition_query=True,
         )
     )
@@ -66,3 +66,29 @@ def get_review(review_id: str):
 
 def save_review(doc: dict):
     container().upsert_item(doc)
+
+
+# App settings live in the same container under the reserved partition
+# "_settings" (excluded from list_reviews above).
+
+def get_settings(settings_id: str):
+    items = list(
+        container().query_items(
+            "SELECT * FROM c WHERE c.id = @id",
+            parameters=[{"name": "@id", "value": settings_id}],
+            partition_key="_settings",
+        )
+    )
+    return items[0] if items else None
+
+
+def save_settings(doc: dict):
+    doc["csp"] = "_settings"
+    container().upsert_item(doc)
+
+
+def delete_settings(settings_id: str):
+    try:
+        container().delete_item(item=settings_id, partition_key="_settings")
+    except exceptions.CosmosResourceNotFoundError:
+        pass

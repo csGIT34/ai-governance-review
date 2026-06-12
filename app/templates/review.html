@@ -33,6 +33,34 @@
   </div>
 </div>
 
+{% set enriched = r.enrichment and not r.enrichment.error %}
+{% set requester_group = source_groups | selectattr("id", "equalto", "requester") | first %}
+{% set enrich_group = source_groups | selectattr("id", "equalto", "enrich") | first %}
+
+<h2>Start here</h2>
+<div class="card">
+  <ol style="margin:0.3rem 0 0.3rem 1.2rem; padding:0">
+    <li style="margin-bottom:0.4rem">
+      {% if enriched %}✔{% endif %} <strong>Fetch the catalog snapshot</strong> (below) —
+      auto-fills {{ enrich_group["items"] | length }} items
+      ({% for i in enrich_group["items"] %}{{ i.id }}{% if not loop.last %}, {% endif %}{% endfor %}).
+      {% if enriched %}<span class="meta">Done.</span>{% endif %}
+    </li>
+    <li style="margin-bottom:0.4rem">
+      {% if not requester_group.open_ids %}✔{% endif %} <strong>Ask the requester</strong> —
+      justification, regions, data classification, traffic forecast
+      ({% for i in requester_group["items"] %}{{ i.id }}{% if not loop.last %}, {% endif %}{% endfor %}).
+      One message covers all {{ requester_group["items"] | length }}.
+    </li>
+    <li>
+      <strong>Work down the checklist</strong> — sections are ordered by where the data
+      comes from, so one trip to each source clears a whole section. Clear the
+      <span class="badge blocker">blocker</span> items first: they gate unconditional approval.
+      Gaps in <span class="badge required">required</span> items become conditions on the decision.
+    </li>
+  </ol>
+</div>
+
 <h2>CSP catalog enrichment</h2>
 <div class="card">
   {% if r.enrichment %}
@@ -40,6 +68,12 @@
       <p class="error">{{ r.enrichment.error }}</p>
     {% else %}
       <p class="meta">Snapshot from <strong>{{ r.enrichment.source }}</strong> at {{ r.enrichment.fetched_at }}</p>
+      {% if r.enrichment.match_count == 0 %}
+        <p class="error">No catalog match for "{{ r.enrichment.query }}".
+        {% if r.enrichment.suggestions %}Closest catalog ids:
+          <strong>{{ r.enrichment.suggestions | join(", ") }}</strong>.{% endif %}
+        The model id is set at review creation - if it's wrong, create a new review with the exact id.</p>
+      {% endif %}
       <pre>{{ r.enrichment | tojson(indent=2) }}</pre>
     {% endif %}
   {% else %}
@@ -54,18 +88,24 @@
 
 <h2>Review checklist</h2>
 <form method="post" action="/reviews/{{ r.id }}/checklist">
-  {% for cat in categories %}
+  {% for group in source_groups %}
   <div class="card">
-    <h2 style="margin-top:0">{{ cat }}</h2>
-    {% for item in items if item.category == cat %}
+    <h2 style="margin-top:0">{{ loop.index }}. {{ group.label }}
+      {% if group.open_ids %}<span class="badge in_review">{{ group.open_ids | length }} open</span>
+      {% else %}<span class="badge approved">done</span>{% endif %}
+    </h2>
+    <p class="meta">{{ group.hint }}</p>
+    {% for item in group["items"] %}
     {% set resp = r.checklist[item.id] %}
     <div class="item">
       <div class="head">
         <strong>{{ item.id }}</strong>
         <span>{{ item.title }}</span>
         <span class="badge {{ item.severity }}">{{ item.severity }}</span>
+        <span class="meta">{{ item.category }}</span>
       </div>
       <p class="guidance">{{ item.guidance }}</p>
+      <p class="csp-note">📍 <strong>Where:</strong> {{ item.where }}</p>
       {% if item.azure and r.csp == "azure" %}<p class="csp-note">☁️ <strong>Azure:</strong> {{ item.azure }}</p>{% endif %}
       {% if item.gcp and r.csp == "gcp" %}<p class="csp-note">☁️ <strong>GCP:</strong> {{ item.gcp }}</p>{% endif %}
       <div class="controls">
@@ -107,6 +147,22 @@
     <input type="file" name="file" required>
     <button type="submit" class="secondary">Upload</button>
   </form>
+  <hr style="border:none;border-top:1px solid var(--line);margin:0.9rem 0">
+  <form method="post" action="/reviews/{{ r.id }}/reference-docs">
+    <button type="submit" class="secondary">Fetch CSP reference docs</button>
+  </form>
+  <p class="meta">Saves dated PDF copies of the {{ "Microsoft" if r.csp == "azure" else "Google" }}
+  data-privacy and terms pages — the agreements that are the same for most models — and links
+  them as evidence on the related checklist items. Items with a curated standard position
+  (C3, C4, E3) are auto-filled with [auto] notes; use-case judgments stay yours. If a source
+  page has changed since its position was validated, the position is withheld and the item is
+  flagged instead. Affected items:
+  {% for d in ref_docs %}{{ d.title }} ({{ d["items"] | join(", ") }}){% if not loop.last %} · {% endif %}{% endfor %}.</p>
+  {% if internal_docs %}
+  <p class="meta"><strong>Internal documents</strong> (linked as evidence on their items, not snapshotted):
+  {% for d in internal_docs %}<a href="{{ d.url }}" target="_blank">{{ d.title }}</a>{% if d["items"] %} ({{ d["items"] | join(", ") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}.
+  Manage them in <a href="/settings">Settings</a>.</p>
+  {% endif %}
 </div>
 
 <h2>Decision</h2>

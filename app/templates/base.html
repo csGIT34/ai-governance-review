@@ -23,6 +23,7 @@
     .badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
     .badge.azure { background: #dbeafe; color: #1d4ed8; }
     .badge.gcp { background: #fee2e2; color: #b91c1c; }
+    .badge.internal { background: #e0e7ff; color: #3730a3; }
     .badge.in_review { background: #fef3c7; color: #92400e; }
     .badge.approved { background: #dcfce7; color: #166534; }
     .badge.conditional { background: #ffedd5; color: #9a3412; }
@@ -38,6 +39,7 @@
     button, .btn { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1.1rem;
       border-radius: 6px; font: inherit; font-size: 0.9rem; cursor: pointer; }
     button.secondary { background: #475569; }
+    button.linklike { background: none; color: var(--accent); padding: 0; font-size: 0.82rem; }
     .item { border-top: 1px solid var(--line); padding: 0.8rem 0; }
     .item .head { display: flex; gap: 0.6rem; align-items: baseline; }
     .item .guidance { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0.5rem; }
@@ -56,7 +58,8 @@
   <nav>
     <a class="brand" href="/">AI Governance Review</a>
     <span class="meta" style="color:#94a3b8">Azure &amp; GCP model/feature enablement reviews</span>
-    <a class="btn" href="/reviews/new">+ New review</a>
+    <a href="/settings" style="margin-left:auto">Settings</a>
+    <a class="btn" href="/reviews/new" style="margin-left:0">+ New review</a>
   </nav>
   <main>
     {% block content %}{% endblock %}

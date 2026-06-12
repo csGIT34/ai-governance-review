@@ -1,0 +1,119 @@
+{
+  "azure": [
+    {
+      "slug": "azure-openai-data-privacy",
+      "title": "Azure OpenAI data, privacy & security",
+      "url": "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy",
+      "items": ["C2", "C3", "C4", "H2"],
+      "validated_hash": "7fa7e9b25bc40e518ff870347ebea7551692d743037e02285fc225716cabb5ef",
+      "validated": "2026-06-11",
+      "positions": {
+        "C3": {
+          "status": "pass",
+          "note": "standard position: per the data-privacy terms, prompts, completions and fine-tuning data are not used to train foundation models. Re-verify the snapshot if the terms version changes or the model is a partner model (see C6)."
+        },
+        "C4": {
+          "status": "needs_info",
+          "note": "facts: abuse monitoring may retain prompts/completions up to 30 days unless the subscription has modified abuse monitoring. Decide if acceptable for this workload's data classification (A4)."
+        }
+      }
+    },
+    {
+      "slug": "azure-deployment-types",
+      "title": "Deployment types (processing geography)",
+      "url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/deployment-types",
+      "items": ["C1"]
+    },
+    {
+      "slug": "azure-customer-copyright-commitment",
+      "title": "Customer Copyright Commitment",
+      "url": "https://learn.microsoft.com/en-us/legal/cognitive-services/openai/customer-copyright-commitment",
+      "items": ["E3"],
+      "validated_hash": "81c42f66cf032fb08681e0d91646a5d6d69836d3fcc975a3ed295e5bf5cc7624",
+      "validated": "2026-06-11",
+      "positions": {
+        "E3": {
+          "status": "pass",
+          "note": "standard position: the Customer Copyright Commitment applies only while the required mitigations (content filters) stay enabled - keep H1 filters on."
+        }
+      }
+    },
+    {
+      "slug": "microsoft-genai-code-of-conduct",
+      "title": "Generative AI Services Code of Conduct",
+      "url": "https://learn.microsoft.com/en-us/legal/ai-code-of-conduct",
+      "items": ["E2"]
+    },
+    {
+      "slug": "microsoft-online-services-sla",
+      "title": "SLA for Online Services (covers Azure AI)",
+      "url": "https://www.microsoft.com/licensing/docs/view/Service-Level-Agreements-SLA-for-Online-Services",
+      "items": ["B3"]
+    },
+    {
+      "slug": "azure-preview-supplemental-terms",
+      "title": "Preview supplemental terms",
+      "url": "https://azure.microsoft.com/en-us/support/legal/preview-supplemental-terms/",
+      "items": ["E4"]
+    }
+  ],
+  "gcp": [
+    {
+      "slug": "vertex-genai-data-governance",
+      "title": "Generative AI data governance",
+      "url": "https://cloud.google.com/vertex-ai/generative-ai/docs/data-governance",
+      "items": ["C2", "C3", "C4", "H2"],
+      "validated_hash": "84dd7a50623dfcc66f7db2a284619cd2e6c87eb0fc8a781a4a2233ecce534f97",
+      "validated": "2026-06-11",
+      "positions": {
+        "C3": {
+          "status": "pass",
+          "note": "standard position: per the data-governance docs, Google does not use customer prompts/outputs to train models without permission. Re-verify the snapshot if the terms change or the model is a partner model (see C6)."
+        },
+        "C4": {
+          "status": "needs_info",
+          "note": "facts: prompts may be cached (default up to 24h, can be disabled; zero-data-retention options exist for some services). Decide if acceptable for this workload's data classification (A4)."
+        }
+      }
+    },
+    {
+      "slug": "vertex-locations",
+      "title": "Vertex AI locations & data residency",
+      "url": "https://cloud.google.com/vertex-ai/docs/general/locations",
+      "items": ["C1"]
+    },
+    {
+      "slug": "gcp-genai-indemnified-services",
+      "title": "Generative AI indemnified services",
+      "url": "https://cloud.google.com/terms/generative-ai-indemnified-services",
+      "items": ["E3"],
+      "validated_hash": "84c91e92bd9cad1dea142a69ec80bfc9e912ce1b488ff37504e4f973a2ba7426",
+      "validated": "2026-06-11",
+      "positions": {
+        "E3": {
+          "status": "pass",
+          "note": "standard position: Google's generative AI indemnity is conditional on not disabling the safety filters - keep H1 filters on, and confirm the service/model is on the indemnified-services list in the snapshot."
+        }
+      }
+    },
+    {
+      "slug": "google-genai-use-policy",
+      "title": "Generative AI Prohibited Use Policy",
+      "url": "https://policies.google.com/terms/generative-ai/use-policy",
+      "items": ["E2"]
+    },
+    {
+      "slug": "vertex-ai-sla",
+      "title": "Vertex AI SLA",
+      "url": "https://cloud.google.com/vertex-ai/sla",
+      "items": ["B3"]
+    },
+    {
+      "slug": "gcp-service-specific-terms",
+      "title": "Service Specific Terms (incl. pre-GA terms)",
+      "url": "https://cloud.google.com/terms/service-terms",
+      "items": ["E4"]
+    }
+  ],
+  "internal": []
+}
