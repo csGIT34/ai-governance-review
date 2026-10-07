@@ -40,6 +40,8 @@ def create(csp: str = Form(...), service_name: str = Form(...), model_name: str 
            user: User = Depends(require("preparer")), db: Session = Depends(get_session)):
     if csp not in ("azure", "gcp"):
         raise HTTPException(400, "csp must be azure or gcp")
+    if csp == "gcp" and publisher not in gcp_catalog.PUBLISHERS:
+        raise HTTPException(400, f"publisher must be one of {', '.join(gcp_catalog.PUBLISHERS)}")
     library = db.scalar(select(Library).where(Library.key == ai_review.AI_LIBRARY_KEY))
     name = f"{service_name} — {model_name}" + (f" ({model_version})" if model_version else "")
     a = assessments.create_checklist(db, user, library, name, {

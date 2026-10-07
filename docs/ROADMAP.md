@@ -81,7 +81,15 @@ Most narratives barely change between quarters, so the next RCSA should start fr
   event fetching a token for `https://ossrdbms-aad.database.windows.net/.default`), removing the
   stored password.
 
+### 10. AI review decisions that go stale
+- After a decision, answers can still change (by hand or by auto-fill). If a blocker item
+  stops being Pass/N-A after an "approved" decision, flag the review as "changed since decision"
+  on the list and review page, and require a new decision.
+
 ## P3 — nice to have
+
+- **DNS rebinding:** pin the resolved IP for server-side fetches (custom httpx transport) so a
+  hostname can't resolve to a public address at check time and a private one at connect time.
 
 - **Hybrid controls:** a subscription answer that *adds to* the inherited one instead of
   replacing it (show both in the editor and the export).

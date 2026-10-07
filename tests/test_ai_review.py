@@ -305,3 +305,9 @@ def test_export_json(client, session):
     a1 = next(i for i in data["items"] if i["ref"] == "A1")
     assert a1["status"] == "pass" and a1["updated_by"] == "alice@dev.local"
     assert len(data["items"]) > 40
+
+
+def test_gcp_publisher_must_be_known(client):
+    resp = client.post("/assessments/ai", data={"csp": "gcp", "service_name": "Vertex AI",
+                                                "model_name": "m", "publisher": "../../evil"})
+    assert resp.status_code == 400

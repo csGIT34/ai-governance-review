@@ -92,6 +92,9 @@ Key rules:
   `effective | partially_effective | ineffective | not_tested | na | in_progress | unanswered`.
   An answer is `in_progress` until it has a narrative and both ratings, plus test procedure and
   result unless operating effectiveness is "not tested". N/A needs a narrative saying why.
+  A complete answer's outcome is the **worse** of design and operating effectiveness; if
+  operation wasn't tested it is `not_tested` (never `effective`), unless the design is already
+  partially effective or ineffective.
 
 ### Answer lifecycle (controls)
 
@@ -104,6 +107,8 @@ Key rules:
 ```
 
 - Editing a `prepared` answer (text or evidence) drops it back to `draft`.
+- Evidence and comments attach to a node's *own* answer. On a node that inherits, the user
+  must choose "answer differently here" first; an empty override is never created silently.
 - `returned` answers stay returned until the preparer marks them prepared again.
 - Closing the assessment requires every control × subscription to have a complete effective
   answer and every answer row to be `reviewed`. Closing records an attestation statement and
@@ -116,6 +121,11 @@ version it loaded; a mismatch returns **409** and nothing is written. The browse
 user's text and tells them who saved first. The UPDATE itself is also guarded on the version, so
 two simultaneous requests can't both win.
 
+Sign-off actions (prepare / review / return / reopen) carry the version too, so a reviewer
+can't sign off text that changed after they loaded the page. Every answer write and close/reopen
+first takes a row lock on the assessment (`responses.lock`, `SELECT … FOR UPDATE` on Postgres),
+so an answer can't slip in between the close checks and the close.
+
 ## Audit trail
 
 `app/audit.py` is the only write path for audited data:
@@ -125,8 +135,8 @@ two simultaneous requests can't both win.
   `{field: [before, after]}` for the ones that actually changed (nothing if nothing changed).
 - `audit.record(...)` logs an event without changing fields (exports, deletes).
 
-Events are written in the same transaction as the change. Postgres migration `0002` installs a
-trigger that rejects UPDATE/DELETE on `audit_events`. In production also revoke those rights
+Events are written in the same transaction as the change. Postgres migration `0002` installs
+triggers that reject UPDATE, DELETE and TRUNCATE on `audit_events`. In production also revoke those rights
 from the app's role (see README). Each assessment's log is on its **Activity** page and in the
 Excel export.
 
@@ -144,10 +154,10 @@ Other evidence-integrity rules:
 |---|---|
 | Authentication | Easy Auth (Entra ID) in front of the container; the app trusts `X-MS-CLIENT-PRINCIPAL-*` headers **only** because Easy Auth strips client-supplied ones. `AUTH_MODE=dev` is for local machines only. |
 | Authorization | Roles in `users.role`: viewer < preparer < reviewer < admin, enforced per route with `require(role)`. New users get `DEFAULT_ROLE` (viewer); `ADMIN_UPNS` bootstraps admins. The last active admin can't be removed. |
-| Segregation of duties | A reviewer can't sign off an answer they prepared. |
+| Segregation of duties | A reviewer can't sign off an answer they prepared, or whose content or evidence they changed since its last review (checked against the audit log). Only reviewers can close an issue or accept its risk. |
 | CSRF | `auth.csrf_guard` rejects state-changing requests with `Sec-Fetch-Site: cross-site`, or a foreign `Origin` when Fetch Metadata is absent. |
 | XSS | Jinja autoescaping everywhere. No user text is put into inline JS (`data-confirm` attributes instead). Uploaded HTML/SVG is always served as an attachment with `nosniff`. |
-| SSRF | Only admins can trigger server-side fetches of arbitrary URLs (reference-doc settings). `reference_docs.check_public_url` blocks non-public addresses, including the cloud metadata endpoint, and is re-checked on every redirect hop. |
+| SSRF | Only admins can trigger server-side fetches of arbitrary URLs (reference-doc settings). `reference_docs.check_public_url` blocks non-public addresses, including the cloud metadata endpoint. It is re-checked on every redirect hop, and every request the PDF renderer (Chromium) makes is routed through it. Residual risk: DNS rebinding between the check and the connection. |
 | Uploads | Filenames sanitised; size capped by `MAX_UPLOAD_MB`. |
 | Container | Runs as a non-root user. |
 

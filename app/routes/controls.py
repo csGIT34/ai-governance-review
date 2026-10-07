@@ -54,6 +54,8 @@ def libraries_page(request: Request, user: User = Depends(current_user),
 def create_library(name: str = Form(...), source_url: str = Form(""), source_version: str = Form(""),
                    description: str = Form(""), user: User = Depends(require("admin")),
                    db: Session = Depends(get_session)):
+    if _bad_url(source_url):
+        return redirect("/libraries", error="The document link must start with http:// or https://")
     key, n = libraries.slug(name), 2
     base = key
     while db.scalar(select(Library.id).where(Library.key == key)):
@@ -64,6 +66,10 @@ def create_library(name: str = Form(...), source_url: str = Form(""), source_ver
                                              description=description.strip()))
     db.commit()
     return redirect(f"/libraries/{lib.id}", msg="Library created - add controls or import them.")
+
+
+def _bad_url(url: str) -> bool:
+    return bool(url.strip()) and not url.strip().startswith(("http://", "https://"))
 
 
 def _library(db: Session, lid: int) -> Library:
@@ -90,6 +96,8 @@ def update_library(lid: int, name: str = Form(...), source_url: str = Form(""),
                    source_version: str = Form(""), description: str = Form(""),
                    user: User = Depends(require("admin")), db: Session = Depends(get_session)):
     lib = _library(db, lid)
+    if _bad_url(source_url):
+        return redirect(f"/libraries/{lid}", error="The document link must start with http:// or https://")
     audit.apply_changes(db, user.upn, lib, {"name": name.strip(), "source_url": source_url.strip(),
                                             "source_version": source_version.strip(),
                                             "description": description.strip()})
@@ -338,6 +346,8 @@ def revert_to_inherited(aid: int, iid: int, node_id: int = Form(...),
     r = responses.find(db, iid, node_id)
     if r is None or r.assessment_id != aid:
         raise HTTPException(404)
+    if r.node.parent_id is None:
+        return redirect(back, error="The top of the scope has nothing to inherit from.")
     if responses.lock_reason(a, r) or r.review_state not in ("draft", "returned"):
         return redirect(back, error="Only draft answers can be removed - reopen it first.")
     linked = (db.scalar(select(EvidenceLink.id).where(EvidenceLink.response_id == r.id))
@@ -377,6 +387,7 @@ def close_page(aid: int, request: Request, user: User = Depends(current_user),
 def close(aid: int, statement: str = Form(...), confirm: str = Form(""),
           user: User = Depends(require("reviewer")), db: Session = Depends(get_session)):
     a = _controls(db, aid)
+    responses.lock(db, a)
     back = f"/assessments/{aid}/close"
     if a.status == "closed":
         return redirect(back, error="Already closed.")

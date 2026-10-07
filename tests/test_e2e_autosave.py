@@ -99,3 +99,42 @@ def test_autosave_conflict_and_flush(server, browser):
     carol.wait_for_load_state("load")
     assert carol.input_value(narrative) == "Text typed right before adding a link"
     assert carol.locator("text=pinned").count() >= 1
+
+
+def test_failed_save_blocks_other_submits_without_looping(server, browser):
+    """If autosave keeps failing, clicking another form's button must not retry forever
+    or navigate away (which would lose the typed text)."""
+    url, _ = _assessment(server)
+    page = _page(browser, server, "carol@dev.local")
+    page.goto(url)
+    hits = {"n": 0}
+
+    def fail(route):
+        hits["n"] += 1
+        route.fulfill(status=500, body="{}", content_type="application/json")
+
+    page.route("**/assessments/*/responses", fail)
+    page.fill('textarea[name="narrative"]', "typed while the server is failing")
+    page.fill('input[name="url"]', "https://example.com/e")
+    page.click("text=Add link")
+    page.wait_for_timeout(2000)
+    assert hits["n"] <= 3
+    assert page.url == url  # stayed on the page
+    assert page.input_value('textarea[name="narrative"]') == "typed while the server is failing"
+
+
+def test_mark_prepared_right_after_typing(server, browser):
+    """Autosave bumps the version; the sign-off form on the same page must pick it up."""
+    url, _ = _assessment(server)
+    page = _page(browser, server, "carol@dev.local")
+    page.goto(url)
+    page.fill('textarea[name="narrative"]', "Policy assigned at mg level.")
+    page.locator(".save-state").filter(has_text="Saved").wait_for(timeout=5000)
+    page.reload()  # now the answer exists, so the sign-off form is shown
+    page.select_option('select[name="design_rating"]', "effective")
+    page.select_option('select[name="operating_rating"]', "effective")
+    page.fill('textarea[name="test_procedure"]', "Checked the policy assignment.")
+    page.fill('textarea[name="test_result"]', "Assigned, no exemptions.")
+    page.click("text=Mark prepared")
+    page.wait_for_load_state("load")
+    assert "marked prepared" in page.inner_text(".msg")

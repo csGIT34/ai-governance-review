@@ -100,10 +100,25 @@ def fetch_pdf(url: str) -> bytes:
     """Print the rendered page to PDF with headless Chromium."""
     from playwright.sync_api import sync_playwright
     check_public_url(url)
+    allowed: dict[str, bool] = {}
+
+    def guard(route):
+        """Every request the page makes (redirects, subresources, iframes, fetch) must
+        pass the same SSRF check; checked once per host."""
+        host = urlparse(route.request.url).hostname or ""
+        if host not in allowed:
+            try:
+                check_public_url(route.request.url)
+                allowed[host] = True
+            except ValueError:
+                allowed[host] = False
+        return route.continue_() if allowed[host] else route.abort()
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
             page = browser.new_page()
+            page.route("**/*", guard)
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)

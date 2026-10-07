@@ -27,7 +27,9 @@
       }).then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (r.ok) {
-          form.elements.version.value = data.version;
+          // every form for this answer (sign-off etc.) must carry the new version
+          document.querySelectorAll('input[data-version-for="' + form.elements.version.dataset.versionFor + '"]')
+            .forEach((input) => { input.value = data.version; });
           const badge = form.querySelector("[data-review-state]");
           if (badge && data.review_state) { badge.textContent = data.review_state; badge.className = "badge " + data.review_state; }
           show("Saved " + new Date().toLocaleTimeString(), "ok");
@@ -74,11 +76,20 @@
   document.querySelectorAll("form[data-autosave]").forEach(setup);
 
   // Any other form on the page (evidence, sign-off, upload...) waits for autosaves first.
+  // If a save fails or hits a conflict, stay on the page: submitting would navigate away
+  // and lose the unsaved text (and resubmitting would retry the failing save forever).
   document.addEventListener("submit", async (e) => {
     const f = e.target;
     if (f.matches("form[data-autosave]") || !pending()) return;
     e.preventDefault();
+    const stoppedBefore = editors.map((ed) => ed.stopped);
     await flushAll();
+    const failed = editors.some((ed, i) => ed.dirty || (ed.stopped && !stoppedBefore[i]));
+    if (failed) {
+      window.alert("Your latest text could not be saved, so nothing was submitted. " +
+                   "See the message under the answer.");
+      return;
+    }
     f.requestSubmit(e.submitter);
   });
 

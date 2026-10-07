@@ -123,6 +123,9 @@ def responses_by_item(db: Session, assessment_id: int) -> dict[int, dict[int, Re
 
 # --- progress & rollup ----------------------------------------------------------------
 
+RATING_RANK = {"effective": 0, "partially_effective": 1, "ineffective": 2}
+
+
 def outcome(kind: str, r: Response | None) -> str:
     """One word for an effective response: unanswered | in_progress | na | the rating
     (controls), or the checklist status."""
@@ -135,7 +138,12 @@ def outcome(kind: str, r: Response | None) -> str:
         return "na" if not missing_fields(kind, r) else "in_progress"
     if missing_fields(kind, r):
         return "in_progress"
-    return r.operating_rating if r.operating_rating not in ("", "not_tested") else r.design_rating
+    # The worse of design and operating effectiveness. A control whose operation wasn't
+    # tested is "not tested", never effective - unless its design is already deficient.
+    design, operating = RATING_RANK.get(r.design_rating, 0), RATING_RANK.get(r.operating_rating, 0)
+    if r.operating_rating == "not_tested":
+        return r.design_rating if design > 0 else "not_tested"
+    return r.design_rating if design > operating else r.operating_rating
 
 
 def rollup(db: Session, a: Assessment) -> list[dict]:

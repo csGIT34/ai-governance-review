@@ -1,9 +1,10 @@
 """Saving answers (optimistic locking) and the preparer -> reviewer sign-off."""
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app import audit, auth
-from app.models import Assessment, AssessmentItem, AssessmentScopeNode, Comment, Response, User, utcnow
+from app.models import (Assessment, AssessmentItem, AssessmentScopeNode, AuditEvent, Comment,
+                        EvidenceLink, Response, User, utcnow)
 
 # Which response fields each assessment kind uses.
 FIELDS = {
@@ -74,6 +75,25 @@ def missing_fields(kind: str, r: Response) -> list[str]:
     return out
 
 
+def lock(db: Session, assessment: Assessment):
+    """Row-lock the assessment until commit and re-read it, so answer writes and
+    close/reopen can't interleave (e.g. an answer saved between the close checks and
+    the close). No-op on SQLite, which serialises writers anyway."""
+    db.refresh(assessment, with_for_update=True)
+
+
+def inherited_from(db: Session, item: AssessmentItem,
+                   node: AssessmentScopeNode) -> AssessmentScopeNode | None:
+    """The nearest ancestor answering for this node, if the node has no answer of its own."""
+    cur = node.parent_id
+    while cur is not None:
+        parent = db.get(AssessmentScopeNode, cur)
+        if find(db, item.id, parent.id):
+            return parent
+        cur = parent.parent_id
+    return None
+
+
 def find(db: Session, item_id: int, node_id: int) -> Response | None:
     return db.scalar(select(Response).where(Response.assessment_item_id == item_id,
                                             Response.scope_node_id == node_id))
@@ -105,6 +125,7 @@ def save(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
     if item.assessment_id != assessment.id or node.assessment_id != assessment.id:
         raise SaveError("Item or scope node does not belong to this assessment.")
     clean = _clean(assessment.kind, values)
+    lock(db, assessment)
     resp = find(db, item.id, node.id)
     if resp is None:
         if expected_version != 0:
@@ -132,9 +153,15 @@ def save(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
 def for_edit(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
              node: AssessmentScopeNode) -> Response:
     """The response for (item, node), created empty if needed, about to have its
-    evidence changed. Same lock rules as save(); a prepared response drops back to draft."""
+    evidence changed. Same lock rules as save(); a prepared response drops back to draft.
+    Refuses on a node that inherits its answer: that would silently create an empty
+    override (the user should choose 'answer differently here' first)."""
+    lock(db, assessment)
     resp = find(db, item.id, node.id)
     if resp is None:
+        if src := inherited_from(db, item, node):
+            raise SaveError(f"This level inherits its answer from {src.name}. Choose "
+                            "'Answer differently here' first, or add the evidence there.")
         return save(db, user, assessment, item, node, {}, 0)
     if not auth.can(user, "preparer"):
         raise Forbidden("Viewers can't edit responses.")
@@ -146,19 +173,40 @@ def for_edit(db: Session, user: User, assessment: Assessment, item: AssessmentIt
     return resp
 
 
+def _contributed(db: Session, user: User, resp: Response) -> bool:
+    """Did user write any of this answer's content or evidence since it was last reviewed?"""
+    since = db.scalar(select(func.max(AuditEvent.id)).where(
+        AuditEvent.entity_type == "responses", AuditEvent.entity_id == str(resp.id),
+        AuditEvent.action == "review")) or 0
+    link_ids = [str(i) for i in db.scalars(
+        select(EvidenceLink.id).where(EvidenceLink.response_id == resp.id))]
+    return db.scalar(select(AuditEvent.id).where(
+        AuditEvent.id > since, AuditEvent.actor == user.upn,
+        or_((AuditEvent.entity_type == "responses") & (AuditEvent.entity_id == str(resp.id))
+            & AuditEvent.action.in_(("create", "update", "override", "autofill")),
+            (AuditEvent.entity_type == "evidence_links") & AuditEvent.entity_id.in_(link_ids)),
+    ).limit(1)) is not None
+
+
 def transition(db: Session, user: User, assessment: Assessment, resp: Response, action: str,
-               comment: str = "") -> Response:
+               expected_version: int, comment: str = "") -> Response:
+    """Move an answer through prepare -> review/return -> reopen. expected_version is the
+    version the user was looking at: signing off text you haven't seen is refused."""
     if action not in TRANSITIONS:
         raise SaveError(f"Unknown action {action!r}")
     from_states, to_state, role = TRANSITIONS[action]
+    lock(db, assessment)
     if assessment.kind == "controls" and assessment.status == "closed":
         raise Locked("The assessment is closed.")
     if not auth.can(user, role):
         raise Forbidden(f"'{action}' requires the {role} role.")
+    if resp.version != expected_version:
+        raise Conflict(f"This answer changed since you loaded the page - reload and check it "
+                       f"before you {action} it.", resp)
     if resp.review_state not in from_states:
         raise SaveError(f"Can't {action} a response that is {resp.review_state}.")
-    if action == "review" and resp.prepared_by == user.upn:
-        raise Forbidden("Segregation of duties: you prepared this response, so another "
+    if action == "review" and (resp.prepared_by == user.upn or _contributed(db, user, resp)):
+        raise Forbidden("Segregation of duties: you prepared or edited this answer, so another "
                         "reviewer has to sign it off.")
     if action in ("return", "reopen") and not comment.strip():
         raise SaveError(f"A comment is required to {action} a response.")

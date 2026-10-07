@@ -1,7 +1,7 @@
 """Map catalog snapshot facts onto checklist items.
 
-Only items still 'unreviewed' are touched, so reviewer input is never
-overwritten. Auto-filled notes are prefixed [auto] for provenance and the
+Only items still 'unreviewed' with empty notes are touched, so reviewer
+input is never overwritten. Auto-filled notes are prefixed [auto] for provenance and the
 evidence field points at the snapshot source.
 
 Coverage: A2 (exact identity), B1 (GA vs preview), B2 (deprecation dates,
@@ -12,7 +12,7 @@ stays a human judgment.
 
 def _set(doc: dict, item_id: str, status: str, note: str, source: str):
     resp = doc["checklist"].get(item_id)
-    if not resp or resp["status"] != "unreviewed":
+    if not resp or resp["status"] != "unreviewed" or resp["notes"]:
         return None
     resp["status"] = status
     resp["notes"] = f"[auto] {note}"

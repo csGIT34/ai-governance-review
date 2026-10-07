@@ -5,8 +5,9 @@ from datetime import date
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
-from app import audit
+from app import audit, auth
 from app.auth import current_user, require
 from app.db import get_session
 from app.models import Assessment, AuditEvent, Comment, EvidenceLink, Issue, User, utcnow
@@ -117,8 +118,11 @@ def update_issue(iid: int, version: int = Form(...), title: str = Form(...),
                                     "reload and re-apply your change.")
     if severity not in SEVERITIES or status not in STATUSES or not title.strip():
         return redirect(back, error="Title, severity and status are required.")
-    if status in ("closed", "risk_accepted") and status != issue.status and not note.strip():
-        return redirect(back, error=f"Say why when setting the issue to {STATUSES[status].lower()}.")
+    if status in ("closed", "risk_accepted") and status != issue.status:
+        if not auth.can(user, "reviewer"):  # segregation of duties: someone else accepts/closes
+            return redirect(back, error=f"Only reviewers can set an issue to {STATUSES[status].lower()}.")
+        if not note.strip():
+            return redirect(back, error=f"Say why when setting the issue to {STATUSES[status].lower()}.")
     values = {"title": title.strip(), "description": description.strip(), "severity": severity,
               "status": status, "owner": owner.strip(), "due_date": _date(due_date),
               "remediation_plan": remediation_plan.strip()}
@@ -126,12 +130,16 @@ def update_issue(iid: int, version: int = Form(...), title: str = Form(...),
         values["closed_at"] = utcnow()
     elif status != "closed":
         values["closed_at"] = None
-    if audit.apply_changes(db, user.upn, issue, values, note=note.strip()):
-        db.flush()  # bumps the version
+    audit.apply_changes(db, user.upn, issue, values, note=note.strip())
     if note.strip():
-        db.add(Comment(assessment_id=issue.assessment_id, issue_id=iid, body=note.strip(),
-                       author=user.upn))
-    db.commit()
+        audit.create(db, user.upn, Comment(assessment_id=issue.assessment_id, issue_id=iid,
+                                           body=note.strip(), author=user.upn))
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
+        return redirect(back, error="Someone else changed this issue at the same moment - "
+                                    "reload and re-apply your change.")
     return redirect(back, msg="Saved.")
 
 

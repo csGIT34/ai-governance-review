@@ -3,6 +3,7 @@ evidence, artifacts, history, users."""
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response as HttpResponse
 from sqlalchemy import or_, select
+from sqlalchemy.orm.exc import StaleDataError
 from starlette.datastructures import UploadFile
 from sqlalchemy.orm import Session
 
@@ -35,9 +36,14 @@ def item_and_node(db: Session, a: Assessment, form) -> tuple[AssessmentItem, Ass
     return item, node
 
 
+def local_path(target: str, default: str) -> str:
+    """Only same-site paths: blocks open redirects like //evil.example."""
+    target = str(target or "")
+    return target if target.startswith("/") and not target.startswith(("//", "/\\")) else default
+
+
 def back_to(form, a: Assessment) -> str:
-    target = str(form.get("return_to", ""))
-    return target if target.startswith("/") and not target.startswith("//") else f"/assessments/{a.id}"
+    return local_path(form.get("return_to", ""), f"/assessments/{a.id}")
 
 
 def anchor(item: AssessmentItem) -> str:
@@ -58,7 +64,7 @@ def home(request: Request, user: User = Depends(current_user), db: Session = Dep
 def dev_login(upn: str = Form(...), return_to: str = Form("/")):
     if config.AUTH_MODE != "dev":
         raise HTTPException(404)
-    resp = RedirectResponse(return_to if return_to.startswith("/") else "/", status_code=303)
+    resp = RedirectResponse(local_path(return_to, "/"), status_code=303)
     resp.set_cookie("dev_user", upn, httponly=True, samesite="lax")
     return resp
 
@@ -88,11 +94,15 @@ async def save_response(aid: int, request: Request, user: User = Depends(current
         version = -1
     try:
         resp = responses.save(db, user, a, item, node, dict(form), version)
+        db.commit()
     except responses.SaveError as err:
         out = _error_json(a, err)
         db.rollback()
         return out
-    db.commit()
+    except StaleDataError:  # a concurrent save won the race between check and write
+        db.rollback()
+        return JSONResponse({"message": "Someone else saved this response at the same moment."},
+                            status_code=409)
     return {"version": resp.version, "review_state": resp.review_state,
             "response_id": resp.id}
 
@@ -109,7 +119,11 @@ async def transition(aid: int, request: Request, user: User = Depends(current_us
         return redirect(back, error="Nothing has been answered here yet.", anchor=anchor(item))
     action = str(form.get("action", ""))
     try:
-        responses.transition(db, user, a, resp, action, str(form.get("comment", "")))
+        version = int(form.get("version", -1))
+    except ValueError:
+        version = -1
+    try:
+        responses.transition(db, user, a, resp, action, version, str(form.get("comment", "")))
     except responses.SaveError as err:
         db.rollback()
         return redirect(back, error=f"{item.ref}: {err.message}", anchor=anchor(item))
@@ -129,8 +143,11 @@ async def comment(aid: int, request: Request, user: User = Depends(require("prep
     if reason := responses.lock_reason(a, None):
         return redirect(back, error=reason)
     body = str(form.get("body", "")).strip()
+    resp = responses.find(db, item.id, node.id)
+    if resp is None:  # comments belong to an answer; don't create an empty override
+        return redirect(back, error="Comments go on an answer given at this level.",
+                        anchor=anchor(item))
     if body:
-        resp = responses.find(db, item.id, node.id) or responses.save(db, user, a, item, node, {}, 0)
         audit.create(db, user.upn, Comment(assessment_id=a.id, response_id=resp.id, body=body,
                                            author=user.upn))
         db.commit()
@@ -212,6 +229,8 @@ async def upload_artifact(aid: int, request: Request, user: User = Depends(requi
     upload = form.get("file")
     if not isinstance(upload, UploadFile) or not upload.filename:
         return redirect(back, error="Choose a file to upload.")
+    if (upload.size or 0) > config.MAX_UPLOAD_MB * 1024 * 1024:  # before reading it into memory
+        return redirect(back, error=f"File is larger than {config.MAX_UPLOAD_MB} MB.")
     try:
         resp = None
         if form.get("item_id"):

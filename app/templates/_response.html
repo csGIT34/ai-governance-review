@@ -38,7 +38,7 @@
 <form class="resp" data-autosave="/assessments/{{ a.id }}/responses">
   <input type="hidden" name="item_id" value="{{ item.id }}">
   <input type="hidden" name="node_id" value="{{ node.id }}">
-  <input type="hidden" name="version" value="{{ r.version if r else 0 }}">
+  <input type="hidden" name="version" value="{{ r.version if r else 0 }}" data-version-for="{{ item.id }}-{{ node.id }}">
   <fieldset {% if not editable %}disabled{% endif %}>
   {% if a.kind == "checklist" %}
     {% set cur = r.status if r else "unreviewed" %}
@@ -132,6 +132,7 @@
   <form method="post" action="/assessments/{{ a.id }}/responses/transition">
     <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
     <input type="hidden" name="return_to" value="{{ return_to }}"><input type="hidden" name="action" value="prepare">
+    <input type="hidden" name="version" value="{{ r.version }}" data-version-for="{{ item.id }}-{{ node.id }}">
     <label>Ready for review?</label>
     <button class="ok">Mark prepared</button>
   </form>
@@ -141,6 +142,7 @@
     <form method="post" action="/assessments/{{ a.id }}/responses/transition">
       <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
       <input type="hidden" name="return_to" value="{{ return_to }}">
+      <input type="hidden" name="version" value="{{ r.version }}" data-version-for="{{ item.id }}-{{ node.id }}">
       <label>Reviewer sign-off</label>
       <textarea name="comment" placeholder="Comment (required to return)" style="min-height:44px"></textarea>
       <div class="row" style="margin-top:0.3rem">
@@ -156,6 +158,7 @@
   <form method="post" action="/assessments/{{ a.id }}/responses/transition">
     <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
     <input type="hidden" name="return_to" value="{{ return_to }}"><input type="hidden" name="action" value="reopen">
+    <input type="hidden" name="version" value="{{ r.version }}" data-version-for="{{ item.id }}-{{ node.id }}">
     <label>Reopen for edits</label>
     <textarea name="comment" required placeholder="Why it needs to change (required)" style="min-height:44px"></textarea>
     <button class="secondary" style="margin-top:0.3rem">Reopen</button>

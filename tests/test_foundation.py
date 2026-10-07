@@ -87,7 +87,8 @@ def test_audit_log_is_append_only_on_postgres():
         conn.execute(text("SET search_path TO migtest"))
         conn.execute(text("INSERT INTO audit_events (at, actor, action, entity_type, entity_id, "
                           "changes, note) VALUES (now(), 'x', 'create', 't', '1', '{}', '')"))
-    for stmt in ("UPDATE audit_events SET actor = 'y'", "DELETE FROM audit_events"):
+    for stmt in ("UPDATE audit_events SET actor = 'y'", "DELETE FROM audit_events",
+                 "TRUNCATE audit_events"):
         with pytest.raises(Exception, match="append-only"):
             with engine.begin() as conn:
                 conn.execute(text("SET search_path TO migtest"))

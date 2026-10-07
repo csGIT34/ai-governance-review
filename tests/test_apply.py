@@ -85,3 +85,11 @@ def test_gcp_preview_needs_info():
                           "version_id": "001", "launch_stage": "PUBLIC_PREVIEW"}}
     apply.apply_gcp(snapshot, doc)
     assert doc["checklist"]["B1"]["status"] == "needs_info"
+
+
+def test_never_overwrites_notes_typed_on_unreviewed_item():
+    doc = make_doc()
+    doc["checklist"]["A2"]["notes"] = "checking the id with the vendor"
+    updates = apply.apply_azure(azure_snapshot([GA_MODEL]), doc)
+    assert doc["checklist"]["A2"]["notes"] == "checking the id with the vendor"
+    assert "A2" not in {u["item"] for u in updates}

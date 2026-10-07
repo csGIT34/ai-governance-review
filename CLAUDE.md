@@ -96,8 +96,8 @@ make revision m="..."   # after editing app/models.py; review the generated file
    evidence links are soft-deleted (`removed_at`). Scope nodes are deactivated, not deleted.
 5. **Locks and sign-off live in `services/responses.py`** (`lock_reason`, `transition`). New write
    paths to responses must go through `save()` / `for_edit()` so locks, optimistic versioning
-   and prepared→draft demotion apply. Keep segregation of duties: a reviewer never signs off
-   their own prepared answer.
+   and prepared→draft demotion apply. Sign-off actions must carry the version the user saw.
+   Keep segregation of duties: a reviewer never signs off an answer they prepared or edited.
 6. **Every route declares a role**: `Depends(current_user)` to read, `require("preparer" |
    "reviewer" | "admin")` to write. Viewers are read-only.
 7. **No user text in inline JS** (use `data-*` attributes); serve uploads as attachments unless

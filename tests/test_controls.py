@@ -43,10 +43,21 @@ COMPLETE = {"narrative": "Conditional Access policy CA-01 enforces MFA.",
             "test_procedure": "Reviewed CA policy export", "test_result": "Policy on, no exclusions"}
 
 
-def transition(client, session, aid, ref, node, action, comment=""):
+def current_version(session, aid, ref, node) -> int:
+    session.expire_all()
+    r = session.scalar(select(Response).where(
+        Response.assessment_item_id == item_id(session, aid, ref),
+        Response.scope_node_id == node_id(session, aid, node)))
+    return r.version if r else 0
+
+
+def transition(client, session, aid, ref, node, action, comment="", version=None):
+    """Sign-off action as the browser sends it: with the version on screen (default: current)."""
     return client.post(f"/assessments/{aid}/responses/transition", data={
         "item_id": item_id(session, aid, ref), "node_id": node_id(session, aid, node),
-        "action": action, "comment": comment}, follow_redirects=False)
+        "action": action, "comment": comment,
+        "version": current_version(session, aid, ref, node) if version is None else version},
+        follow_redirects=False)
 
 
 def test_import_parses_excel_paste_and_upserts(client, session, setup):
@@ -331,3 +342,106 @@ def test_every_page_renders(client, session, setup):
         resp = client.get(url)
         assert resp.status_code == 200, url
     assert client.get("/assessments/999", headers={"accept": "text/html"}).status_code == 404
+
+
+# --- regressions from the independent review ------------------------------------------------
+
+def _rollup(session, aid, ref):
+    a = session.get(assessments.Assessment, aid)
+    session.expire_all()
+    return {r["item"].ref: r for r in assessments.rollup(session, a)}[ref]["outcomes"]
+
+
+def test_outcome_is_worst_rating_and_untested_is_never_effective(client, session, setup):
+    aid, root = setup["aid"], "Contoso tenant (demo)"
+    answer(client, session, aid, "IAM-01", root, narrative="x", design_rating="effective",
+           operating_rating="not_tested")
+    assert _rollup(session, aid, "IAM-01") == {"not_tested": 5}
+    v = current_version(session, aid, "IAM-01", root)
+    answer(client, session, aid, "IAM-01", root, version=v, design_rating="ineffective",
+           operating_rating="effective", test_procedure="t", test_result="r")
+    assert _rollup(session, aid, "IAM-01") == {"ineffective": 5}
+
+
+def test_stale_signoff_is_refused(client, session, setup):
+    aid, root = setup["aid"], "Contoso tenant (demo)"
+    as_user(client, PREPARER)
+    answer(client, session, aid, "IAM-01", root, **COMPLETE)
+    transition(client, session, aid, "IAM-01", root, "prepare")
+    seen_by_reviewer = current_version(session, aid, "IAM-01", root)
+    # preparer rewrites and re-prepares after the reviewer loaded the page
+    answer(client, session, aid, "IAM-01", root, version=seen_by_reviewer, narrative="new text")
+    transition(client, session, aid, "IAM-01", root, "prepare")
+    as_user(client, REVIEWER)
+    resp = transition(client, session, aid, "IAM-01", root, "review", version=seen_by_reviewer)
+    assert "changed since you loaded" in unquote(resp.headers["location"])
+    session.expire_all()
+    assert session.scalar(select(Response)).review_state == "prepared"
+
+
+def test_reviewer_who_edited_cannot_sign_off(client, session, setup):
+    aid, root = setup["aid"], "Contoso tenant (demo)"
+    as_user(client, PREPARER)
+    answer(client, session, aid, "IAM-01", root, **COMPLETE)
+    as_user(client, REVIEWER)  # reviewer rewrites the narrative...
+    answer(client, session, aid, "IAM-01", root, version=1, narrative="reviewer's own words")
+    as_user(client, PREPARER)  # ...the preparer marks it prepared...
+    transition(client, session, aid, "IAM-01", root, "prepare")
+    as_user(client, REVIEWER)  # ...so the reviewer would be approving their own text
+    resp = transition(client, session, aid, "IAM-01", root, "review")
+    assert "Segregation of duties" in unquote(resp.headers["location"])
+
+
+def test_no_silent_empty_override_on_inheriting_node(client, session, setup):
+    aid = setup["aid"]
+    answer(client, session, aid, "IAM-01", "Contoso tenant (demo)", **COMPLETE)
+    sub = {"item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid, "sub-app-a-prod")}
+    resp = client.post(f"/assessments/{aid}/responses/evidence", data=sub | {"url": "https://e.x/y"},
+                       follow_redirects=False)
+    assert "inherits its answer" in unquote(resp.headers["location"])
+    resp = client.post(f"/assessments/{aid}/responses/comment", data=sub | {"body": "hi"},
+                       follow_redirects=False)
+    assert "Comments go on an answer" in unquote(resp.headers["location"])
+    resp = client.post(f"/assessments/{aid}/artifacts", data=sub,
+                       files={"file": ("x.txt", b"x", "text/plain")}, follow_redirects=False)
+    assert "inherits its answer" in unquote(resp.headers["location"])
+    session.expire_all()
+    assert session.scalar(select(Response).where(Response.scope_node_id == sub["node_id"])) is None
+    assert _rollup(session, aid, "IAM-01") == {"effective": 5}
+
+
+def test_root_answer_cannot_be_reverted_to_inherited(client, session, setup):
+    aid = setup["aid"]
+    answer(client, session, aid, "IAM-01", "Contoso tenant (demo)", narrative="draft")
+    resp = client.post(f"/assessments/{aid}/items/{item_id(session, aid, 'IAM-01')}/inherit",
+                       data={"node_id": node_id(session, aid)}, follow_redirects=False)
+    assert "nothing to inherit" in unquote(resp.headers["location"])
+    assert session.scalar(select(Response)) is not None
+
+
+def test_only_reviewers_close_issues_and_notes_are_audited(client, session, setup):
+    aid = setup["aid"]
+    client.post(f"/assessments/{aid}/issues", data={
+        "item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid),
+        "title": "gap", "severity": "low"})
+    issue = session.scalar(select(Issue))
+    base = {"version": issue.version, "title": "gap", "severity": "low"}
+    as_user(client, PREPARER)
+    resp = client.post(f"/issues/{issue.id}", data=base | {"status": "risk_accepted", "note": "meh"},
+                       follow_redirects=False)
+    assert "Only reviewers" in unquote(resp.headers["location"])
+    client.post(f"/issues/{issue.id}", data=base | {"status": "open", "note": "chased the owner"})
+    note_events = session.scalars(select(AuditEvent).where(AuditEvent.entity_type == "comments")).all()
+    assert len(note_events) == 1 and note_events[0].changes["body"][1] == "chased the owner"
+
+
+def test_library_link_must_be_http(client):
+    resp = client.post("/libraries", data={"name": "x", "source_url": "javascript:alert(1)"},
+                       follow_redirects=False)
+    assert "must start with http" in unquote(resp.headers["location"])
+
+
+def test_dev_login_does_not_redirect_offsite(client):
+    resp = client.post("/dev/login", data={"upn": PREPARER, "return_to": "//evil.example"},
+                       follow_redirects=False)
+    assert resp.headers["location"] == "/"
