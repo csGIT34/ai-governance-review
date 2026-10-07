@@ -1,91 +1,116 @@
-# AI Governance Review
+# Governance Review
 
-Internal tool for the platform engineering team to review new AI models and features on
-**Azure** and **GCP** before enabling them on the LiteLLM-based AI platform. Every review is a
-structured 14-category checklist with evidence, a point-in-time CSP catalog snapshot, uploaded
-artifacts, and a recorded decision — stored durably as the historical record.
+Internal tool that records **proof that cloud controls are performed**, kept to audit standard.
+Every answer, sign-off, piece of evidence and change is recorded with who did it and when.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the architecture and the full review framework.
+- **Control assessments (RCSA)** for Azure. Answer each control from your control document
+  for every subscription. Answer once at a management group and the subscriptions under it
+  inherit, unless they override. Link evidence (SHA-pinned links to the audit-evidence repo, or
+  uploaded files), have a second person sign off each answer, raise issues for gaps, then close
+  and attest. Export everything to Excel for the auditors.
+- **AI model / feature enablement reviews** on Azure and GCP: a 45-item checklist with catalog
+  auto-fill, CSP terms snapshots and a reviewer decision. See
+  [docs/ai-review-framework.md](docs/ai-review-framework.md).
 
-## Run locally
+How it works: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). What's next:
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
-Prerequisites: Docker Desktop (Linux containers).
+## Run it locally
+
+Prerequisite: Docker.
 
 ```sh
 docker compose up --build
+docker compose exec app python -m app.seed --demo   # optional: example controls + scope tree
 ```
 
-Then open **http://localhost:8000**. The Cosmos DB emulator can take ~30–60s on first start;
-the app retries until it's reachable.
+Open **http://localhost:8000**. Local runs use `AUTH_MODE=dev`: switch between Alice (admin),
+Bob (reviewer), Carol (preparer) and Victor (viewer) from the top-right menu. That lets you try
+the preparer → reviewer flow on your own. Data persists in the `pg-data` and `azurite-data`
+volumes; `docker compose down -v` wipes it.
 
-Also available:
-- Cosmos Data Explorer: http://localhost:1234
-- Azurite blob endpoint: http://localhost:10000
+### Without Docker (tests and quick iteration)
 
-Data persists in the `azurite-data` volume (artifacts). The Cosmos emulator (vnext-preview) is
-**not** persistent across container recreation — fine for the POC; reviews survive restarts but
-not `docker compose down`. Use `docker compose stop`/`start` to keep data.
-
-## Workflow
-
-1. **New review** — capture CSP, service, model/feature, regions, requester, justification.
-2. **Fetch catalog snapshot** — pulls lifecycle status, deprecation dates, capabilities from the
-   Azure model catalog or Vertex AI publisher catalog and stores them on the review (optional,
-   needs credentials — see below). Facts the catalog can answer are auto-filled into the
-   checklist (A2 identity, B1 GA/preview, B2 retirement dates) without ever overwriting
-   reviewer input.
-3. **Work the checklist** — 14 categories, ~45 items, each Pass / Fail / N/A / Needs info with
-   notes and evidence links. CSP-specific guidance is shown per item.
-4. **Upload artifacts** — screenshots, pricing sheets, exported terms (stored in Blob Storage).
-5. **Record decision** — Approved / Approved with conditions / Rejected. Unconditional approval
-   is blocked while any *blocker* item is not Pass/N-A.
-6. **Export** — full review as JSON for audits.
-
-## Optional: CSP catalog enrichment credentials
-
-The app works fully without these; the enrich button will just explain it's not configured.
-
-**Azure** — set in your shell (or a `.env` file next to `docker-compose.yml`) before
-`docker compose up`:
-
-```
-AZURE_SUBSCRIPTION_ID=...
-AZURE_TENANT_ID=...
-AZURE_CLIENT_ID=...        # service principal with Reader on the subscription
-AZURE_CLIENT_SECRET=...
+```sh
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+make test                  # SQLite, no services needed
+make test-pg               # same suite on Postgres (starts a throwaway container)
+make e2e                   # browser test of autosave (needs: playwright install chromium)
 ```
 
-On Azure Container Apps later, drop the SP variables and use the app's **managed identity** —
-`DefaultAzureCredential` picks it up automatically.
+## Using it (control assessment)
 
-**GCP** — run `gcloud auth application-default login` on your machine, then uncomment the
-`GOOGLE_APPLICATION_CREDENTIALS` env var and the ADC volume mount in `docker-compose.yml`, and
-set `GOOGLE_CLOUD_PROJECT` (used as the quota/billing project).
+1. **Libraries → New controls library.** Link the control document and its version, then
+   paste the control table from Excel (header row: `ref, title, description, category, owner,
+   frequency, framework_refs, guidance`; names like "Control ID" also work). Re-importing
+   updates by `ref`.
+2. **Scope → Sync from Azure**, or add the tenant, management groups and subscriptions by hand.
+3. **+ New → Control assessment.** Pick the library, the scope root and the period. Controls
+   and scope are frozen from that moment.
+4. Open a control and pick a level in the scope tree. Type how the control is performed, then
+   fill in the ratings, the test you did and its result, and any exceptions. **Answers save as
+   you type.** Answer at a management group when the control is implemented centrally.
+5. Add evidence: a permalink to the evidence repo file (press `y` on the GitHub file page to get
+   one pinned to a commit), or upload a file. Raise an issue for each real gap.
+6. **Mark prepared.** A reviewer (not the preparer) signs it off or returns it with a comment.
+7. **Close & attest** once every control has a complete, signed-off answer for every
+   subscription. Export to Excel or print the report.
 
-## Reference doc sources
+## Configuration
 
-The per-CSP terms/privacy pages snapshotted into each review can be managed on the
-**Settings** page (top nav): edit a URL if a page moves, add or remove docs, and map each
-doc to checklist items. Each doc has **Open**/**Check** buttons to verify the URL still works.
-An **Internal documents** section holds your own policies/intranet pages, which apply to every
-review and are linked as evidence (not snapshotted — intranet pages usually need sign-in).
-Edits are stored in Cosmos and take effect immediately; **Reset to defaults** returns to the
-bundled list.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | local Postgres | SQLAlchemy URL, e.g. `postgresql+psycopg://user:pw@host:5432/db?sslmode=require` |
+| `BLOB_CONNECTION_STRING` | Azurite | Storage account for files |
+| `BLOB_CONTAINER` | `artifacts` | |
+| `MAX_UPLOAD_MB` | `50` | |
+| `AUTH_MODE` | `easyauth` | `easyauth` (behind Container Apps auth) or `dev` (local only, never deploy) |
+| `ADMIN_UPNS` | — | Comma-separated UPNs made admin on first sign-in |
+| `DEFAULT_ROLE` | `viewer` | Role for everyone else on first sign-in |
+| `EVIDENCE_REPO_BASE` | — | e.g. `https://github.corp.com/org/audit-evidence`: links under it are checked for SHA pinning |
+| `AZURE_TENANT_ID` | — | Enables scope sync (root management group = tenant root group) |
+| `AZURE_ROOT_MANAGEMENT_GROUP` | tenant id | Sync from a lower management group instead |
+| `AZURE_SUBSCRIPTION_ID`, `GOOGLE_CLOUD_PROJECT` | — | AI review catalog enrichment (optional) |
+| `REFERENCE_DOCS_PATH` | bundled JSON | AI review reference-doc defaults |
 
-The bundled defaults (including per-doc standard positions and validation hashes) live in
-`app/enrichment/reference_docs.json`; `REFERENCE_DOCS_PATH` can point the app at a custom
-defaults file without rebuilding the image.
+Azure calls use `DefaultAzureCredential`: the managed identity on Azure, or
+`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`AZURE_TENANT_ID` locally (put them in `.env`; see
+`.env.example`).
 
-## Deploying to Azure (later)
+## Deploying to Azure
 
-The app is a single container; the local emulators map 1:1 to real services:
+One container. Services:
 
 | Local (compose) | Azure |
 |---|---|
-| `app` container | Azure Container Apps |
-| Cosmos DB emulator | Azure Cosmos DB (NoSQL), database `governance`, container `reviews`, PK `/csp` |
-| Azurite | Storage Account, blob container `artifacts` |
+| `app` | **Azure Container Apps** with built-in authentication (Microsoft / Entra ID provider, "require authentication") and a system-assigned managed identity |
+| `db` (Postgres 16) | **Azure Database for PostgreSQL Flexible Server**, private access, `sslmode=require` |
+| `azurite` | **Storage account** with blob versioning, soft delete and a time-based immutability policy on the `artifacts` container |
 
-Set `COSMOS_ENDPOINT`, `COSMOS_KEY`, and `BLOB_CONNECTION_STRING` on the Container App and it
-runs unchanged. Add Entra ID authentication via Container Apps built-in auth (Easy Auth) before
-exposing it to the team.
+Checklist:
+
+1. Container App env: `DATABASE_URL` (secret / Key Vault reference), `BLOB_CONNECTION_STRING`,
+   `AUTH_MODE=easyauth`, `ADMIN_UPNS=<you>`, `AZURE_TENANT_ID`, `EVIDENCE_REPO_BASE`.
+2. Easy Auth **must** be enabled with unauthenticated requests rejected. The app trusts its
+   identity headers.
+3. Managed identity: **Management Group Reader** on the root (or chosen) management group for
+   scope sync. Add **Reader** on a subscription for AI catalog enrichment if used.
+4. The container runs `alembic upgrade head` on start. With more than one replica, run it as a
+   separate job before rolling out instead.
+5. Make the audit log append-only for the app's database role too (the migration's trigger
+   already blocks UPDATE/DELETE):
+   ```sql
+   REVOKE UPDATE, DELETE, TRUNCATE ON audit_events FROM <app_role>;
+   ```
+6. Postgres backups / PITR retention and blob immutability should match your evidence
+   retention policy.
+
+## Moving this repo to work
+
+- Push to your work GitHub, then point your work Claude Code at `CLAUDE.md`. It has the
+  project map, commands and the rules that must not be broken.
+- Commit history carries the author email of whoever made each commit here. Squash or rewrite
+  it first if that matters at work.
+- CI (`.github/workflows/ci.yml`) runs the tests on SQLite and Postgres plus the browser test.
+  GitHub Enterprise runners need Docker for the Postgres service.

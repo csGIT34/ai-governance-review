@@ -63,3 +63,66 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# Project: Governance Review
+
+Audit-evidence app: teams record **proof that cloud controls are performed** (Azure RCSA) and
+review AI model enablement requests. Auditors rely on the output, so **integrity beats features**.
+Read `docs/ARCHITECTURE.md` before non-trivial changes; open work is in `docs/ROADMAP.md`.
+
+## Stack & commands
+
+FastAPI + Jinja2 (server-rendered, no build step) · SQLAlchemy 2 + Alembic · Postgres (SQLite in
+tests) · Azure Blob · Entra ID via Container Apps Easy Auth · vanilla JS in `app/static/app.js`.
+
+```sh
+make test        # pytest on SQLite - run before every commit
+make test-pg     # same suite on Postgres (Docker) - run when touching models/queries/migrations
+make e2e         # Playwright browser test of autosave - run when touching app.js / _response.html
+make up          # docker compose: app on :8000 with AUTH_MODE=dev user switcher
+make revision m="..."   # after editing app/models.py; review the generated file
+```
+
+## Rules that must not be broken
+
+1. **Every change to audited data goes through `app/audit.py`** (`create`, `apply_changes`,
+   `record`) in the same transaction. Never `setattr` + commit on a model without it.
+2. **`audit_events` is append-only.** Never UPDATE/DELETE it (a Postgres trigger rejects it anyway).
+3. **Assessments are frozen snapshots.** Never make `assessment_items` / `assessment_scope_nodes`
+   follow later library or scope edits, and never rewrite them after creation.
+4. **Evidence is immutable.** Artifacts are never overwritten (new blob path each upload);
+   evidence links are soft-deleted (`removed_at`). Scope nodes are deactivated, not deleted.
+5. **Locks and sign-off live in `services/responses.py`** (`lock_reason`, `transition`). New write
+   paths to responses must go through `save()` / `for_edit()` so locks, optimistic versioning
+   and prepared→draft demotion apply. Keep segregation of duties: a reviewer never signs off
+   their own prepared answer.
+6. **Every route declares a role**: `Depends(current_user)` to read, `require("preparer" |
+   "reviewer" | "admin")` to write. Viewers are read-only.
+7. **No user text in inline JS** (use `data-*` attributes); serve uploads as attachments unless
+   PDF/image/plain text; server-side fetches of user-supplied URLs go through
+   `reference_docs.check_public_url`.
+8. Schema changes need an Alembic migration that `alembic check` agrees with. Postgres-only SQL
+   goes in its own migration, guarded on `op.get_bind().dialect.name`.
+
+## Conventions
+
+- Routes stay thin: parse form → call `app/services/*` → `db.commit()` → `redirect(url, msg=..., error=...)`
+  (post/redirect/get). Services raise `responses.SaveError` subclasses; routes turn them into messages.
+- Templates: `render(request, "x.html", ctx)` from `app/web.py`. `_response.html` holds the
+  shared answer editor macro used by both assessment kinds; `can(user, role)` is a Jinja global.
+- Tests: `tests/conftest.py` gives `client` (dev auth, starts as admin), `session`, `as_user()`,
+  in-memory blobs, and a fresh schema per test. Add a test for every behaviour change, and
+  make it pass on both SQLite and Postgres.
+- Keep the Azure/GCP calls stubbable: tests monkeypatch module functions such as
+  `scope.fetch_hierarchy`, `azure_catalog.enrich` and `reference_docs.fetch`.
+
+## Gotchas
+
+- SQLite returns naive datetimes: compare through `models.aware()`.
+- `Response`/`Issue` use SQLAlchemy `version_id_col`. Don't set `version` by hand; `db.flush()` bumps it.
+- Form uploads are `starlette.datastructures.UploadFile`, not FastAPI's subclass (matters for `isinstance`).
+- `/assessments/{aid:int}` must keep its `:int`, or it swallows `/assessments/new/...`.
+- Don't put `<div>` inside `<p>` in templates: the parser closes the `<p>` and the layout breaks.
+- Alembic `Config.set_main_option` needs `%` escaped as `%%`.

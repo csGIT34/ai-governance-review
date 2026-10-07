@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: governance
+          POSTGRES_PASSWORD: governance
+          POSTGRES_DB: governance
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U governance" --health-interval 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - name: Migrations match the models
+        run: alembic upgrade head && alembic check
+        env:
+          DATABASE_URL: postgresql+psycopg://governance:governance@localhost:5432/governance
+      - name: Tests on SQLite (includes the browser test)
+        run: python -m pytest -q
+      - name: Tests on Postgres (includes migrations + append-only trigger)
+        run: python -m pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://governance:governance@localhost:5432/governance

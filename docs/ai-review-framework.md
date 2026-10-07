@@ -1,7 +1,8 @@
-# AI Governance Review — Design
+# AI model / feature enablement review — framework
 
-An internal tool for the platform engineering team to review new AI models and features on
-**Azure** and **GCP** before enabling them for the company's LiteLLM-based AI platform.
+The **checklist** assessment kind: reviews of new AI models and features on **Azure** and
+**GCP** before enabling them on the company's LiteLLM-based AI platform. (System design is in
+[ARCHITECTURE.md](ARCHITECTURE.md); this document is the review framework itself.)
 
 ## Why this exists
 
@@ -14,11 +15,11 @@ tribal. This app makes the review repeatable, auditable, and historical.
 
 | Concept | Description |
 |---|---|
-| **Review** | One request to enable a model/feature on one CSP. Carries the full checklist, an enrichment snapshot, artifacts, and a decision. |
-| **Checklist template** | The versioned review framework (see below). A *copy* of the template is embedded into each review at creation time, so later template changes never rewrite historical records. |
+| **Review** | One request to enable a model/feature on one CSP: an assessment of kind `checklist`. Carries the answers, an enrichment snapshot, artifacts, and a decision. |
+| **Checklist library** | The review framework (see below), seeded from `app/checklist.py` into the `ai-enablement` library on first start and editable under Libraries. Each review snapshots the items at creation, so later edits never rewrite historical records. |
 | **Enrichment snapshot** | Point-in-time metadata pulled from the CSP catalog APIs (lifecycle status, deprecation dates, capabilities) stored on the review as evidence of what the CSP said *at review time*. |
 | **Artifacts** | Files (screenshots, exported docs, pricing sheets) uploaded as evidence, stored in Blob Storage. |
-| **Decision** | Approved / Approved with conditions / Rejected, with approver, conditions, and a re-review date. |
+| **Decision** | Approved / Approved with conditions / Rejected, recorded by a signed-in reviewer with conditions/rationale and a re-review date. Superseded decisions stay in the history. |
 
 ## The review framework (what we check before enabling anything)
 
@@ -109,74 +110,19 @@ Fourteen categories, ~45 items. Each item has a severity:
 - Developer communication (docs, model card, known limitations).
 - Re-review owner and date assigned.
 
-## Architecture
-
-```
-┌─────────────────────────────┐
-│  FastAPI app (container)    │
-│  Jinja2 server-rendered UI  │
-│                             │
-│  • Review CRUD + checklist  │
-│  • Decision workflow        │
-│  • CSP enrichment           │
-│  • Artifact upload/download │
-└──────┬───────────┬──────────┘
-       │           │
-       ▼           ▼
-  Cosmos DB     Blob Storage          Azure ARM API ──┐ enrichment
-  (reviews)     (artifacts)           Vertex AI API ──┘ (optional)
-```
-
-- **Local (POC)**: `docker compose up` runs the app + Cosmos DB Linux emulator (vnext-preview)
-  + Azurite. Same `azure-cosmos` / `azure-storage-blob` SDK code as production.
-- **Production (later)**: Azure Container Apps + real Cosmos DB + Storage Account. Swap is
-  config-only: `COSMOS_ENDPOINT`, `COSMOS_KEY` (or managed identity), `BLOB_CONNECTION_STRING`.
-  Enrichment uses `DefaultAzureCredential`, which picks up the Container App's managed identity
-  automatically.
-
-### Data model (Cosmos `reviews` container, partition key `/csp`)
-
-```jsonc
-{
-  "id": "uuid",
-  "csp": "azure | gcp",
-  "service_name": "Azure OpenAI",
-  "model_name": "gpt-4.1",
-  "model_version": "2025-04-14",
-  "regions": "eastus2, swedencentral",
-  "requested_by": "dev team / person",
-  "justification": "...",
-  "status": "in_review | approved | conditional | rejected",
-  "checklist_version": "1.0",
-  "checklist": { "A1": { "status": "pass|fail|na|needs_info|unreviewed", "notes": "", "evidence": "" }, ... },
-  "enrichment": { "fetched_at": "...", "source": "...", "data": { ... } },
-  "artifacts": [ { "name": "pricing.pdf", "blob_path": "...", "uploaded_at": "..." } ],
-  "decision": { "outcome": "...", "approver": "...", "conditions": "...", "re_review_date": "...", "decided_at": "..." },
-  "created_at": "...", "updated_at": "..."
-}
-```
-
-### Enrichment sources
-
-- **Azure**: ARM `Microsoft.CognitiveServices/locations/{region}/models` — model versions,
-  lifecycle status, **deprecation dates**, capabilities, SKUs. Needs `AZURE_SUBSCRIPTION_ID` and
-  credentials resolvable by `DefaultAzureCredential`.
-- **GCP**: Vertex AI `publishers/{publisher}/models/{model}` — **launch stage**, version,
-  supported actions. Needs Application Default Credentials.
-
-Enrichment is optional: with no credentials configured, the button reports why and the review
-proceeds manually. Snapshots are stored on the review document for the historical record.
+## Catalog auto-fill
 
 Catalog facts that directly answer checklist items are auto-filled with `[auto]`-prefixed notes
-and the snapshot as evidence: **A2** (exact identity confirmed / version ambiguity flagged),
-**B1** (GA → pass; preview → needs-info, since enabling previews is a policy decision), and
-**B2** (Azure retirement dates; the Vertex catalog doesn't expose them). Auto-fill only touches
-items still *unreviewed* — reviewer input is never overwritten — and each snapshot records which
-items it updated (`checklist_updates`). Everything else stays a human judgment.
+and the snapshot artifact as evidence: **A2** (exact identity confirmed / version ambiguity
+flagged), **B1** (GA → pass; preview → needs-info, since enabling previews is a policy
+decision), and **B2** (Azure retirement dates; the Vertex catalog doesn't expose them).
+Auto-fill only touches items still *unreviewed* — reviewer input is never overwritten — and
+each snapshot records which items it updated (`checklist_updates`). Everything else stays a
+human judgment. Reference-doc snapshots work the same way for curated standard positions
+(C3, C4, E3), withheld if the source page changed since validation.
 
-## Out of scope for the POC (deliberate)
+## Out of scope (deliberate)
 
-- AuthN/AuthZ on the app itself (add Entra ID auth via Container Apps built-in auth at deploy time).
 - Notifications/integrations (Teams/Slack/ServiceNow).
-- Multi-step approval chains — single approver field for now.
+- Multi-step approval chains — one reviewer decision per review.
 - AWS (owned by another team) — `csp` is an enum, adding `aws` later is a template + enum change.
