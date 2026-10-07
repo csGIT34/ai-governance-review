@@ -187,10 +187,12 @@ async def add_evidence(aid: int, request: Request, user: User = Depends(current_
         db.rollback()
         return redirect(back, error=f"{item.ref}: {getattr(err, 'message', err)}", anchor=anchor(item))
     db.commit()
-    warn = ("" if link.pinned is not False else
-            f"{item.ref}: that repo link points at a branch, not a commit - it will change "
-            "as the branch moves. Use a permalink (press 'y' on the GitHub file page).")
-    return redirect(back, error=warn, anchor=anchor(item))
+    if link.pinned is False:
+        return redirect(back, anchor=anchor(item), error=f"{item.ref}: " + (
+            link.message or "that repo link points at a branch, not a commit - it will change as "
+            "the branch moves. Use a permalink (press 'y' on the GitHub file page)."))
+    return redirect(back, msg=f"{item.ref}: {link.message}" if link.message else "",
+                    anchor=anchor(item))
 
 
 @router.post("/evidence/{lid}/remove")

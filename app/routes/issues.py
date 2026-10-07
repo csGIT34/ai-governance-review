@@ -154,5 +154,7 @@ def issue_evidence(iid: int, url: str = Form(...), title: str = Form(""),
         db.rollback()
         return redirect(f"/issues/{iid}", error=str(err))
     db.commit()
-    return redirect(f"/issues/{iid}", error="" if link.pinned is not False else
-                    "That repo link points at a branch, not a commit - use a permalink.")
+    if link.pinned is False:
+        return redirect(f"/issues/{iid}", error=link.message or
+                        "That repo link points at a branch, not a commit - use a permalink.")
+    return redirect(f"/issues/{iid}", msg=link.message)

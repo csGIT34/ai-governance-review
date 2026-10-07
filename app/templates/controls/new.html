@@ -25,6 +25,14 @@
     <div><label>Period start</label><input type="date" name="period_start"></div>
     <div><label>Period end</label><input type="date" name="period_end"></div>
   </div>
+  <label>Start from a previous assessment (optional)</label>
+  <select name="start_from">
+    <option value="">— Start empty —</option>
+    {% for p in previous %}<option value="{{ p.id }}">{{ p.name }} ({{ p.status }}{% if p.period_end %}, to {{ p.period_end | d }}{% endif %})</option>{% endfor %}
+  </select>
+  <p class="meta">Copies each answer's narrative, applicability and test procedure (and control assignments) as
+    <strong>drafts</strong>, matched by control ref and subscription. Ratings, test results and exceptions start
+    empty: they have to be re-established for the new period. Evidence is not copied.</p>
   <p class="meta">The controls and the scope tree are copied into the assessment now, so later edits to
     the library or new subscriptions don't change it.</p>
   <p><button>Create assessment</button></p>

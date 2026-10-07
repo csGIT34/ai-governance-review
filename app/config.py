@@ -44,6 +44,10 @@ DEFAULT_ROLE = os.environ.get("DEFAULT_ROLE", "viewer")
 # https://github.example.com/org/audit-evidence . Used to recognise repo links
 # and warn when they are not pinned to a commit SHA.
 EVIDENCE_REPO_BASE = os.environ.get("EVIDENCE_REPO_BASE", "").rstrip("/")
+# Optional: pin branch links to commits via the GitHub API (read-only token with
+# Contents: read on the evidence repo). GitHub Enterprise: https://<host>/api/v3
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_API_URL = os.environ.get("GITHUB_API_URL", "")
 
 # Azure scope sync (management groups + subscriptions) and AI catalog enrichment.
 # Credentials resolve via DefaultAzureCredential (managed identity on Azure).

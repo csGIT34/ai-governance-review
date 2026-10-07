@@ -17,6 +17,7 @@
       <p><span class="progressbar"><span style="width: {{ (100 * progress.done / progress.total) | round }}%"></span></span>
         <span class="meta">{{ progress.done }}/{{ progress.total }} control × subscription answers complete</span></p>
       <p class="noprint">
+        {% if can(user, "reviewer") %}<a href="/assessments/{{ a.id }}/review">Review queue</a> ·{% endif %}
         <a href="/assessments/{{ a.id }}/issues">Issues{% if open_issues %} ({{ open_issues }} open){% endif %}</a> ·
         <a href="/assessments/{{ a.id }}/export.xlsx">Excel export</a> ·
         <a href="/assessments/{{ a.id }}/report">Report (print / PDF)</a> ·
@@ -44,14 +45,36 @@
   <button class="secondary">Filter</button>
   {% if q or category or show %}<a href="/assessments/{{ a.id }}">clear</a>{% endif %}
 </form>
+{% if can(user, "reviewer") and a.status != "closed" %}
+<form method="post" action="/assessments/{{ a.id }}/assign" class="row noprint" style="margin-bottom:0.8rem">
+  <span class="meta">Assign all controls in</span>
+  <select name="category" style="max-width:14rem"><option value="">every category</option>
+    {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+  <span class="meta">to</span>
+  <select name="assignee" style="max-width:16rem"><option value="">(nobody)</option>
+    {% for u in assignable %}<option value="{{ u.upn }}">{{ u.display_name or u.upn }}</option>{% endfor %}</select>
+  <button class="secondary">Assign</button>
+</form>
+{% endif %}
 
 <table>
-  <tr><th>Control</th><th>Frameworks</th><th>Across {{ leaves }} subscription{{ "s" if leaves != 1 }}</th><th>Sign-off</th></tr>
+  <tr><th>Control</th><th>Frameworks</th><th>Assigned to</th><th>Across {{ leaves }} subscription{{ "s" if leaves != 1 }}</th><th>Sign-off</th></tr>
   {% for row in rows %}{% set i = row.item %}
   <tr>
     <td><a href="/assessments/{{ a.id }}/items/{{ i.id }}"><strong>{{ i.ref }}</strong> {{ i.title }}</a>
       <div class="meta">{{ i.category }}{% if i.owner %} · {{ i.owner }}{% endif %}{% if i.frequency %} · {{ i.frequency }}{% endif %}</div></td>
     <td class="meta">{{ i.framework_refs }}</td>
+    <td class="meta">
+      {% if can(user, "reviewer") and a.status != "closed" %}
+      <form method="post" action="/assessments/{{ a.id }}/assign" class="noprint">
+        <input type="hidden" name="item_id" value="{{ i.id }}">
+        <select name="assignee" onchange="this.form.submit()" style="max-width:11rem;font-size:0.8rem">
+          <option value="">—</option>
+          {% for u in assignable %}<option value="{{ u.upn }}" {% if u.upn == i.assignee %}selected{% endif %}>{{ u.display_name or u.upn }}</option>{% endfor %}
+        </select>
+      </form>
+      {% else %}{{ i.assignee or "—" }}{% endif %}
+    </td>
     <td>{% for o in ["effective", "partially_effective", "ineffective", "not_tested", "na", "in_progress", "unanswered"] %}
         {% if row.outcomes.get(o) %}<span class="badge {{ o }}">{{ outcome_labels[o] }} {{ row.outcomes[o] }}</span> {% endif %}
       {% endfor %}</td>
@@ -61,7 +84,7 @@
       {% if row.states.get("reviewed") %}<br><span class="badge reviewed">{{ row.states.reviewed }} reviewed</span>{% endif %}</td>
   </tr>
   {% else %}
-  <tr><td colspan="4" class="meta">No controls match.</td></tr>
+  <tr><td colspan="5" class="meta">No controls match.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

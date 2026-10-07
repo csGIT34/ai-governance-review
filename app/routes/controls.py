@@ -225,22 +225,33 @@ def new_controls_form(request: Request, user: User = Depends(require("preparer")
                       db: Session = Depends(get_session)):
     libs = db.scalars(select(Library).where(Library.kind == "controls").order_by(Library.name)).all()
     roots = [(n, d) for n, d in scope.tree(db) if n.active and n.kind != "subscription"]
-    return render(request, "controls/new.html", {"libraries": libs, "roots": roots})
+    previous = db.scalars(select(Assessment).where(Assessment.kind == "controls")
+                          .order_by(Assessment.created_at.desc())).all()
+    return render(request, "controls/new.html", {"libraries": libs, "roots": roots,
+                                                 "previous": previous})
 
 
 @router.post("/assessments/controls")
 def create_controls(name: str = Form(...), library_id: int = Form(...), root_id: int = Form(...),
                     period_start: str = Form(""), period_end: str = Form(""),
+                    start_from: str = Form(""),
                     user: User = Depends(require("preparer")), db: Session = Depends(get_session)):
     lib, root = db.get(Library, library_id), db.get(ScopeNode, root_id)
     if lib is None or lib.kind != "controls" or root is None:
         return redirect("/assessments/new/controls", error="Pick a controls library and a scope.")
     if not any(i.active for i in lib.items):
         return redirect("/assessments/new/controls", error=f"{lib.name} has no active controls yet.")
+    prev = db.get(Assessment, int(start_from)) if start_from else None
+    if prev is not None and prev.kind != "controls":
+        prev = None
     a = assessments.create_controls(db, user, lib, name.strip(), root, _date(period_start), _date(period_end))
+    carried = assessments.carry_forward(db, user, a, prev) if prev else 0
     db.commit()
-    return redirect(f"/assessments/{a.id}", msg="Assessment created. Controls and scope are frozen "
-                                                "as of now; later library edits don't change it.")
+    msg = "Assessment created. Controls and scope are frozen as of now; later library edits don't change it."
+    if prev:
+        msg += (f" {carried} answer(s) carried forward from '{prev.name}' as drafts: re-test them and"
+                " fill in ratings, results and exceptions again.")
+    return redirect(f"/assessments/{a.id}", msg=msg)
 
 
 @router.get("/assessments/{aid:int}")
@@ -260,8 +271,11 @@ def assessment_page(aid: int, request: Request, category: str = "", q: str = "",
                      or (show == "open" and (r["outcomes"].get("unanswered") or r["outcomes"].get("in_progress"))))]
     open_issues = db.scalar(select(func.count(Issue.id)).where(Issue.assessment_id == aid,
                                                                 Issue.status != "closed"))
+    assignable = db.scalars(select(User).where(User.active, User.role != "viewer")
+                            .order_by(User.upn)).all()
     return render(request, "controls/overview.html", {
         "a": a, "rows": filtered, "all_rows": rows, "categories": categories,
+        "assignable": assignable,
         "category": category, "q": q, "show": show, "progress": assessments.progress(db, a),
         "outcome_labels": OUTCOME_LABELS, "open_issues": open_issues,
         "leaves": rows[0]["leaves"] if rows else 0,
@@ -292,10 +306,16 @@ def item_page(aid: int, iid: int, request: Request, node: int | None = None,
                        and x["r"] is not None and current.id in {anc.id for anc in tree.ancestors(x["node"].id)}]
     idx = [i.id for i in a.items].index(iid)
     issues = db.scalars(select(Issue).where(Issue.assessment_item_id == iid).order_by(Issue.id)).all()
+    earlier_issues = db.scalars(select(Issue).join(AssessmentItem, Issue.assessment_item_id == AssessmentItem.id)
+                                .where(AssessmentItem.ref == item.ref, Issue.assessment_id != aid,
+                                       Issue.status != "closed").order_by(Issue.id)).all()
+    here = own.get(current.id)
+    carried = db.get(Response, here.carried_from_id) if here and here.carried_from_id else None
     return render(request, "controls/item.html", {
         "a": a, "item": item, "tree": tree, "nodes": nodes, "current": current,
         "r": r_own, "r_eff": r_eff, "inherited_from": inherited_from,
-        "overrides_below": overrides_below, "issues": issues,
+        "overrides_below": overrides_below, "issues": issues, "earlier_issues": earlier_issues,
+        "carried": carried, "carried_from": db.get(Assessment, carried.assessment_id) if carried else None,
         "locked": responses.lock_reason(a, r_own),
         "prev": a.items[idx - 1] if idx > 0 else None,
         "next": a.items[idx + 1] if idx + 1 < len(a.items) else None,

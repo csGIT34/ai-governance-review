@@ -445,3 +445,84 @@ def test_dev_login_does_not_redirect_offsite(client):
     resp = client.post("/dev/login", data={"upn": PREPARER, "return_to": "//evil.example"},
                        follow_redirects=False)
     assert resp.headers["location"] == "/"
+
+
+# --- carry forward, assignment, my work, bulk review -------------------------------------
+
+def test_carry_forward_copies_answers_as_drafts(client, session, setup):
+    aid = setup["aid"]
+    _complete_everything(client, session, aid)
+    client.post(f"/assessments/{aid}/assign", data={"item_id": item_id(session, aid, "IAM-01"),
+                                                     "assignee": PREPARER})
+    client.post(f"/assessments/{aid}/issues", data={
+        "item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid),
+        "title": "Break-glass account", "severity": "high"})
+    tenant = session.scalar(select(ScopeNode).where(ScopeNode.kind == "tenant"))
+    resp = client.post("/assessments/controls", data={
+        "name": "Q1 2027", "library_id": setup["lid"], "root_id": tenant.id, "start_from": aid},
+        follow_redirects=False)
+    new = aid_from(resp)
+    assert "2 answer(s) carried forward" in unquote(resp.headers["location"])
+    session.expire_all()
+    carried = session.scalars(select(Response).where(Response.assessment_id == new)).all()
+    assert {r.review_state for r in carried} == {"draft"}
+    r = carried[0]
+    assert r.narrative == COMPLETE["narrative"] and r.test_procedure == COMPLETE["test_procedure"]
+    assert (r.design_rating, r.operating_rating, r.test_result) == ("", "", "")  # must be re-tested
+    assert r.carried_from_id is not None
+    assert session.get(assessments.Assessment, new).items[0].assignee == PREPARER
+    page = client.get(f"/assessments/{new}/items/{item_id(session, new, 'IAM-01')}")
+    assert "Carried forward from" in page.text and "Still open from earlier" in page.text
+    # the previous assessment is untouched
+    old = session.scalars(select(Response).where(Response.assessment_id == aid)).all()
+    assert {o.review_state for o in old} == {"reviewed"}
+
+
+def test_assignment_and_my_work(client, session, setup):
+    aid = setup["aid"]
+    as_user(client, PREPARER)
+    client.get("/")  # first sign-in creates the user, so it can be assigned
+    assert client.post(f"/assessments/{aid}/assign", data={"assignee": PREPARER}).status_code == 403
+    as_user(client, REVIEWER)
+    resp = client.post(f"/assessments/{aid}/assign", data={"category": "Identity", "assignee": PREPARER},
+                       follow_redirects=False)
+    assert "Assigned 1 control" in unquote(resp.headers["location"])
+    resp = client.post(f"/assessments/{aid}/assign", data={"assignee": "nobody@x"}, follow_redirects=False)
+    assert "not an active user" in unquote(resp.headers["location"])
+
+    as_user(client, PREPARER)
+    page = client.get("/my").text
+    assert "IAM-01" in page and "5 of 5 subscriptions" in page and "LOG-01" not in page
+    answer(client, session, aid, "IAM-01", "Contoso tenant (demo)", **COMPLETE)
+    transition(client, session, aid, "IAM-01", "Contoso tenant (demo)", "prepare")
+    assert "Nothing outstanding" in client.get("/my").text
+    as_user(client, REVIEWER)
+    assert "Waiting for review" in client.get("/my").text and "IAM-01" in client.get("/my").text
+    transition(client, session, aid, "IAM-01", "Contoso tenant (demo)", "return", "needs evidence")
+    as_user(client, PREPARER)
+    assert "Returned to me" in client.get("/my").text
+
+
+def test_bulk_signoff_skips_own_and_stale(client, session, setup):
+    aid = setup["aid"]
+    root = "Contoso tenant (demo)"
+    as_user(client, PREPARER)
+    for ref in ("IAM-01", "LOG-01"):
+        answer(client, session, aid, ref, root, **COMPLETE)
+        transition(client, session, aid, ref, root, "prepare")
+    as_user(client, REVIEWER)
+    answer(client, session, aid, "IAM-01", "mg-prod", **COMPLETE)
+    transition(client, session, aid, "IAM-01", "mg-prod", "prepare")  # reviewer's own
+    page = client.get(f"/assessments/{aid}/review").text
+    assert page.count('name="pick"') == 2  # own answer has no checkbox
+    picks = [f"{r.id}:{r.version}" for r in session.scalars(select(Response).order_by(Response.id))]
+    stale = session.scalar(select(Response).where(Response.assessment_item_id == item_id(session, aid, "LOG-01")))
+    picks[1] = f"{stale.id}:{stale.version - 1}"  # pretend the page was older than the answer
+    resp = client.post(f"/assessments/{aid}/review", data={"pick": picks, "comment": "ok"},
+                       follow_redirects=False)
+    loc = unquote(resp.headers["location"])
+    assert "Signed off 1 answer" in loc and "changed since you loaded" in loc and "Segregation" in loc
+    session.expire_all()
+    states = {r.item.ref + "@" + r.node.name: r.review_state for r in session.scalars(select(Response))}
+    assert states == {"IAM-01@Contoso tenant (demo)": "reviewed", "LOG-01@Contoso tenant (demo)": "prepared",
+                      "IAM-01@mg-prod": "prepared"}

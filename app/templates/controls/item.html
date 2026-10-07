@@ -32,6 +32,9 @@
     <div class="card" id="item-{{ item.ref }}">
       <h2 style="margin-top:0">{{ path }} <span class="kind-tag">{{ current.kind | replace("_", " ") }}</span></h2>
       {% if r %}
+        {% if carried %}<p class="msg" style="margin-top:0">Carried forward from
+          <a href="/assessments/{{ carried_from.id }}/items/{{ carried.assessment_item_id }}?node={{ carried.scope_node_id }}">{{ carried_from.name }}</a>
+          — re-test it: ratings, test result and exceptions start empty.</p>{% endif %}
         {{ editor(a, item, current, r, user, return_to, status_choices, ratings, locked) }}
         {% if current.parent_id and r.review_state in ("draft", "returned") and not locked and can(user, "preparer") %}
         <form method="post" action="/assessments/{{ a.id }}/items/{{ item.id }}/inherit" class="noprint" style="margin-top:0.6rem">
@@ -87,6 +90,16 @@
         {% endfor %}
       </ul>
       {% else %}<p class="meta">None.</p>{% endif %}
+      {% if earlier_issues %}
+      <p class="meta" style="margin-bottom:0.2rem"><strong>Still open from earlier assessments:</strong></p>
+      <ul class="evidence">
+        {% for iss in earlier_issues %}
+        <li><a href="/issues/{{ iss.id }}">{{ iss.ref }}</a> {{ iss.title }} <span class="badge {{ iss.severity }}">{{ iss.severity }}</span>
+          <span class="badge {{ iss.status }}">{{ iss.status | replace("_", " ") }}</span>
+          <span class="meta">{{ iss.node.name if iss.node else "" }}{% if iss.due_date %} · due {{ iss.due_date | d }}{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
       {% if can(user, "preparer") and a.status != "closed" %}
       <details class="noprint"><summary class="meta" style="cursor:pointer">Raise an issue (gap / exception) at {{ current.name }}</summary>
         <form method="post" action="/assessments/{{ a.id }}/issues">

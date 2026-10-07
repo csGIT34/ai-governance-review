@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app import auth, db, seed
-from app.routes import ai, common, controls, issues
+from app.routes import ai, common, controls, issues, work
 from app.web import render
 
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Governance Review", lifespan=lifespan)
 app.middleware("http")(auth.csrf_guard)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
-for module in (common, ai, controls, issues):
+for module in (common, ai, controls, issues, work):
     app.include_router(module.router)
 
 

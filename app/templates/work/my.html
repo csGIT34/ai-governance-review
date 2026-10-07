@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}My work{% endblock %}
+{% block content %}
+<h1>My work</h1>
+<p class="meta">Open control assessments only. Signed in as {{ user.upn }} ({{ user.role }}).</p>
+
+{% if returned %}
+<h2>Returned to me <span class="badge returned">{{ returned | length }}</span></h2>
+<table>
+  <tr><th>Control</th><th>Where</th><th>Assessment</th><th>Returned</th></tr>
+  {% for r in returned %}
+  <tr><td><a href="/assessments/{{ r.assessment_id }}/items/{{ r.assessment_item_id }}?node={{ r.scope_node_id }}">{{ r.item.ref }} {{ r.item.title }}</a></td>
+    <td class="meta">{{ r.node.name }}</td><td class="meta">{{ names[r.assessment_id] }}</td><td class="meta">{{ r.updated_at | dt }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Controls assigned to me with answers to write</h2>
+{% if to_answer %}
+<table>
+  <tr><th>Control</th><th>Assessment</th><th>Still to do</th></tr>
+  {% for x in to_answer %}
+  <tr><td><a href="/assessments/{{ x.a.id }}/items/{{ x.item.id }}">{{ x.item.ref }} {{ x.item.title }}</a></td>
+    <td class="meta">{{ x.a.name }}</td>
+    <td><span class="badge in_progress">{{ x.todo }} of {{ x.leaves }} subscription{{ "s" if x.leaves != 1 }}</span></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="meta">Nothing outstanding.</p>{% endif %}
+
+{% if drafts %}
+<h2>Drafts I last edited</h2>
+<table>
+  <tr><th>Control</th><th>Where</th><th>Assessment</th><th>Last saved</th></tr>
+  {% for r in drafts %}
+  <tr><td><a href="/assessments/{{ r.assessment_id }}/items/{{ r.assessment_item_id }}?node={{ r.scope_node_id }}">{{ r.item.ref }} {{ r.item.title }}</a></td>
+    <td class="meta">{{ r.node.name }}</td><td class="meta">{{ names[r.assessment_id] }}</td><td class="meta">{{ r.updated_at | dt }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if can(user, "reviewer") %}
+<h2>Waiting for review <span class="badge prepared">{{ to_review | length }}</span></h2>
+{% if to_review %}
+<table>
+  <tr><th>Control</th><th>Where</th><th>Assessment</th><th>Prepared by</th></tr>
+  {% for r in to_review %}
+  <tr><td><a href="/assessments/{{ r.assessment_id }}/items/{{ r.assessment_item_id }}?node={{ r.scope_node_id }}">{{ r.item.ref }} {{ r.item.title }}</a></td>
+    <td class="meta">{{ r.node.name }}</td>
+    <td class="meta"><a href="/assessments/{{ r.assessment_id }}/review">{{ names[r.assessment_id] }}</a></td>
+    <td class="meta">{{ r.prepared_by }} · {{ r.prepared_at | dt }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="meta">Nothing waiting.</p>{% endif %}
+{% endif %}
+
+<h2>Issues I own</h2>
+{% if issues %}
+<table>
+  <tr><th>Issue</th><th>Severity</th><th>Status</th><th>Due</th></tr>
+  {% for i in issues %}
+  <tr><td><a href="/issues/{{ i.id }}">{{ i.ref }} {{ i.title }}</a><div class="meta">{{ names.get(i.assessment_id, "") }}</div></td>
+    <td><span class="badge {{ i.severity }}">{{ i.severity }}</span></td>
+    <td><span class="badge {{ i.status }}">{{ i.status | replace("_", " ") }}</span></td>
+    <td class="meta">{{ i.due_date | d }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="meta">None (matched on your sign-in name or display name in the issue's owner field).</p>{% endif %}
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Review queue · {{ a.name }}{% endblock %}
+{% block content %}
+<p class="meta"><a href="/assessments/{{ a.id }}">← {{ a.name }}</a></p>
+<h1>Review queue — {{ a.name }}</h1>
+{% if pending %}
+<p class="meta">Answers marked prepared. Read each one, tick the ones you accept, and sign them off together.
+  Answers you prepared or edited, and answers that changed after this page loaded, are skipped.
+  To send one back with a comment, open it.</p>
+<form method="post" action="/assessments/{{ a.id }}/review">
+  <table>
+    <tr><th><input type="checkbox" aria-label="select all" onclick="document.querySelectorAll('input[name=pick]').forEach(c => c.checked = this.checked)"></th>
+      <th>Control / where</th><th>Answer</th><th>Prepared by</th></tr>
+    {% for r in pending %}
+    <tr>
+      <td>{% if r.prepared_by != user.upn %}<input type="checkbox" name="pick" value="{{ r.id }}:{{ r.version }}">{% endif %}</td>
+      <td><a href="/assessments/{{ a.id }}/items/{{ r.assessment_item_id }}?node={{ r.scope_node_id }}"><strong>{{ r.item.ref }}</strong> {{ r.item.title }}</a>
+        <div class="meta">{{ tree.path(r.scope_node_id) }}</div></td>
+      <td><span class="meta">{{ "Not applicable" if r.status == "na" else "design " ~ ratings[r.design_rating] ~ " · operating " ~ ratings[r.operating_rating] }}
+        · {{ r.evidence | length }} evidence</span>
+        <div class="prewrap">{{ r.narrative | truncate(400) }}</div>
+        {% if r.test_result %}<div class="meta prewrap"><strong>Result:</strong> {{ r.test_result | truncate(250) }}</div>{% endif %}
+        {% if r.exceptions %}<div class="meta prewrap"><strong>Exceptions:</strong> {{ r.exceptions | truncate(250) }}</div>{% endif %}</td>
+      <td class="meta">{{ r.prepared_by }}<br>{{ r.prepared_at | dt }}{% if r.prepared_by == user.upn %}<br><em>yours - another reviewer signs this</em>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <label>Comment for all signed-off answers (optional)</label>
+  <textarea name="comment" style="min-height:44px"></textarea>
+  <p><button class="ok">Sign off selected</button></p>
+</form>
+{% else %}
+<div class="card meta">Nothing is waiting for review.</div>
+{% endif %}
+{% endblock %}

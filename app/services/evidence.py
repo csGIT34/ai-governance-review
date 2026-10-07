@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import audit, blob, config
 from app.models import Artifact, Assessment, EvidenceLink, Issue, Response, User, utcnow
+from app.services import github
 
 # .../<owner>/<repo>/(blob|tree|raw)/<ref>/<path>  (GitHub and GitHub Enterprise)
 REPO_LINK = re.compile(r"^https?://[^/]+/[^/]+/[^/]+/(?:blob|tree|raw)/([^/?#]+)/")
@@ -32,18 +33,26 @@ def classify(url: str) -> tuple[str, bool | None]:
 def add_link(db: Session, user: User, assessment: Assessment, url: str, title: str = "",
              response: Response | None = None, issue: Issue | None = None,
              artifact: Artifact | None = None, note: str = "") -> EvidenceLink:
-    url = url.strip()
+    """Add an evidence link. Repo links are pinned to a commit when the GitHub API is
+    configured. The returned link has a transient `.message` for the user (pinning result)."""
+    url, message = url.strip(), ""
     if artifact is not None:
         kind, pinned = "artifact", None
     else:
         if not url.startswith(("http://", "https://")):
             raise ValueError("Evidence links must start with http:// or https://")
         kind, pinned = classify(url)
+        if kind == "repo":
+            result = github.pin(url)
+            if result.pinned is not None:
+                url, pinned, message = result.url, result.pinned, result.message
     link = EvidenceLink(assessment_id=assessment.id, response_id=response.id if response else None,
                         issue_id=issue.id if issue else None, kind=kind, url=url,
                         title=title.strip()[:500], artifact_id=artifact.id if artifact else None,
                         pinned=pinned, added_by=user.upn)
-    return audit.create(db, user.upn, link, note=note)
+    audit.create(db, user.upn, link, note="; ".join(x for x in (note, message) if x))
+    link.message = message
+    return link
 
 
 def remove_link(db: Session, user: User, link: EvidenceLink):

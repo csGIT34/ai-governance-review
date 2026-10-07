@@ -191,3 +191,39 @@ def close_blockers(db: Session, a: Assessment) -> dict:
                 incomplete.append((item, leaf))
         unreviewed += [r for r in own.values() if r.review_state != "reviewed"]
     return {"incomplete": incomplete, "unreviewed": unreviewed}
+
+
+# Fields copied when an answer is carried forward. Ratings, test results and exceptions are
+# deliberately NOT copied: they have to be re-established for the new period.
+CARRY_FIELDS = ("status", "narrative", "test_procedure")
+
+
+def carry_forward(db: Session, user: User, new: Assessment, prev: Assessment) -> int:
+    """Start `new` from `prev`: for every control (matched by ref) and scope node (matched by
+    the underlying ScopeNode) answered in `prev`, create a draft answer with the narrative,
+    applicability and test procedure, linked via carried_from_id. Assignees carry over too.
+    Returns the number of answers created."""
+    prev_items = {i.ref: i for i in prev.items}
+    new_nodes = {n.scope_node_id: n for n in new.scope_nodes if n.scope_node_id}
+    prev_nodes = {n.id: n for n in prev.scope_nodes}
+    by_item = responses_by_item(db, prev.id)
+    created = 0
+    for item in new.items:
+        old_item = prev_items.get(item.ref)
+        if old_item is None:
+            continue
+        if old_item.assignee and not item.assignee:
+            audit.apply_changes(db, user.upn, item, {"assignee": old_item.assignee},
+                                note=f"carried forward from assessment {prev.id}")
+        for old_node_id, old in by_item.get(old_item.id, {}).items():
+            target = new_nodes.get(prev_nodes[old_node_id].scope_node_id)
+            if target is None:  # subscription no longer in scope
+                continue
+            audit.create(db, user.upn, Response(
+                assessment_id=new.id, assessment_item_id=item.id, scope_node_id=target.id,
+                updated_by=user.upn, carried_from_id=old.id,
+                **{f: getattr(old, f) for f in CARRY_FIELDS}),
+                note=f"carried forward from assessment {prev.id}")
+            created += 1
+    db.flush()
+    return created

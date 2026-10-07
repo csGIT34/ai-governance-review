@@ -39,7 +39,7 @@ class User(Base):
 
 # Fields copied from a LibraryItem into an AssessmentItem snapshot.
 ITEM_FIELDS = ("ref", "title", "description", "category", "severity", "owner", "frequency",
-               "framework_refs", "guidance", "extra", "position")
+               "framework_refs", "guidance", "evidence_query", "extra", "position")
 
 
 class Library(Base):
@@ -79,6 +79,8 @@ class LibraryItem(Base):
     frequency: Mapped[str] = mapped_column(String(100), default="")
     framework_refs: Mapped[str] = mapped_column(Text, default="")  # free text, e.g. "NIST AC-2; CIS 1.1"
     guidance: Mapped[str] = mapped_column(Text, default="")  # how to answer / evidence expected
+    # Optional Azure Resource Graph (KQL) query whose result is attachable as evidence.
+    evidence_query: Mapped[str] = mapped_column(Text, default="")
     extra: Mapped[dict] = mapped_column(JSON, default=dict)  # kind-specific (AI: source, where, azure, gcp)
     position: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(default=True)
@@ -143,8 +145,12 @@ class AssessmentItem(Base):
     frequency: Mapped[str] = mapped_column(String(100), default="")
     framework_refs: Mapped[str] = mapped_column(Text, default="")
     guidance: Mapped[str] = mapped_column(Text, default="")
+    evidence_query: Mapped[str] = mapped_column(Text, default="")
     extra: Mapped[dict] = mapped_column(JSON, default=dict)
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Who answers this control in this assessment. The only field that changes after
+    # creation (the control content above stays frozen); changes are audited.
+    assignee: Mapped[str] = mapped_column(String(320), default="")
 
 
 class AssessmentScopeNode(Base):
@@ -188,6 +194,8 @@ class Response(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(TS)
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_by: Mapped[str] = mapped_column(String(320), default="")
+    # Set when this answer started as a copy of the previous assessment's answer.
+    carried_from_id: Mapped[int | None] = mapped_column(ForeignKey("responses.id"))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow, onupdate=utcnow)
 
