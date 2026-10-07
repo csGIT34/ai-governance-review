@@ -14,9 +14,9 @@ from app import audit
 from app.models import Library, LibraryItem, User
 
 EDITABLE = ("ref", "title", "description", "category", "owner", "frequency",
-            "framework_refs", "guidance", "severity")
+            "framework_refs", "guidance", "evidence_query", "severity")
 IMPORT_COLUMNS = ("ref", "title", "description", "category", "owner", "frequency",
-                  "framework_refs", "guidance")
+                  "framework_refs", "guidance", "evidence_query")
 ALIASES = {
     "id": "ref", "control_id": "ref", "control_ref": "ref", "control_number": "ref",
     "name": "title", "control": "title", "control_name": "title", "control_title": "title",
@@ -25,6 +25,7 @@ ALIASES = {
     "control_owner": "owner", "frameworks": "framework_refs", "framework": "framework_refs",
     "mappings": "framework_refs", "mapping": "framework_refs", "references": "framework_refs",
     "evidence": "guidance", "evidence_required": "guidance", "testing_guidance": "guidance",
+    "kql": "evidence_query", "resource_graph_query": "evidence_query", "query": "evidence_query",
 }
 
 

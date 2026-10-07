@@ -2,20 +2,20 @@
 editor with management-group inheritance."""
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import Response as HttpResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
-from app import audit
+from app import audit, notify
 from app.auth import current_user, require
 from app.db import get_session
 from app.models import (Assessment, AssessmentItem, Comment, EvidenceLink, Issue, Library,
                         LibraryItem, Response, ScopeNode, User)
 from app.routes import ai
 from app.routes.common import load_assessment
-from app.services import assessments, export, libraries, responses, scope
+from app.services import assessments, azure_evidence, export, libraries, responses, scope
 from app.web import redirect, render
 
 router = APIRouter()
@@ -404,7 +404,7 @@ def close_page(aid: int, request: Request, user: User = Depends(current_user),
 
 
 @router.post("/assessments/{aid}/close")
-def close(aid: int, statement: str = Form(...), confirm: str = Form(""),
+def close(aid: int, background: BackgroundTasks, statement: str = Form(...), confirm: str = Form(""),
           user: User = Depends(require("reviewer")), db: Session = Depends(get_session)):
     a = _controls(db, aid)
     responses.lock(db, a)
@@ -424,6 +424,9 @@ def close(aid: int, statement: str = Form(...), confirm: str = Form(""),
     audit.apply_changes(db, user.upn, a, {"status": "closed", "attestation": attestation},
                         action="close", note=statement.strip())
     db.commit()
+    background.add_task(notify.send, f"Assessment closed and attested: {a.name}", statement.strip(),
+                        [("Attested by", user.upn), ("Open issues at close", str(len(open_issues)))],
+                        f"/assessments/{aid}")
     return redirect(f"/assessments/{aid}", msg="Assessment closed and attested. Answers are now locked.")
 
 
@@ -470,3 +473,24 @@ def report(aid: int, request: Request, user: User = Depends(current_user),
         "a": a, "sections": sections, "issues": issues, "tree": tree,
         "ratings": responses.RATINGS, "outcome_labels": OUTCOME_LABELS,
         "generated": datetime.now(timezone.utc)})
+
+
+@router.post("/assessments/{aid}/items/{iid}/azure-evidence")
+def attach_azure_evidence(aid: int, iid: int, node_id: int = Form(...),
+                          user: User = Depends(require("preparer")),
+                          db: Session = Depends(get_session)):
+    """Run the control's Resource Graph query over the subscriptions under node_id and attach
+    the result as evidence on that node's answer."""
+    a = _controls(db, aid)
+    item = db.get(AssessmentItem, iid)
+    tree = assessments.Tree(a.scope_nodes)
+    if item is None or item.assessment_id != aid or node_id not in tree.nodes:
+        raise HTTPException(404)
+    back = f"/assessments/{aid}/items/{iid}?node={node_id}"
+    try:
+        link = azure_evidence.attach(db, user, a, item, tree.nodes[node_id])
+    except (azure_evidence.EvidenceError, responses.SaveError) as err:
+        db.rollback()
+        return redirect(back, error=getattr(err, "message", str(err)), anchor=f"item-{item.ref}")
+    db.commit()
+    return redirect(back, msg=f"Attached: {link.title}", anchor=f"item-{item.ref}")

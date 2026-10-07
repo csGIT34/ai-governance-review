@@ -2,12 +2,12 @@
 They outlive the assessment that raised them and stay editable after it closes."""
 from datetime import date
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from app import audit, auth
+from app import audit, auth, notify
 from app.auth import current_user, require
 from app.db import get_session
 from app.models import Assessment, AuditEvent, Comment, EvidenceLink, Issue, User, utcnow
@@ -30,8 +30,8 @@ def _date(value: str) -> date | None:
 
 
 @router.post("/assessments/{aid}/issues")
-async def raise_issue(aid: int, request: Request, user: User = Depends(require("preparer")),
-                      db: Session = Depends(get_session)):
+async def raise_issue(aid: int, request: Request, background: BackgroundTasks,
+                      user: User = Depends(require("preparer")), db: Session = Depends(get_session)):
     form = await request.form()
     a = load_assessment(db, aid)
     item, node = item_and_node(db, a, form)
@@ -50,6 +50,12 @@ async def raise_issue(aid: int, request: Request, user: User = Depends(require("
         due_date=_date(str(form.get("due_date", ""))),
         remediation_plan=str(form.get("remediation_plan", "")).strip(), created_by=user.upn))
     db.commit()
+    if severity in ("high", "critical"):
+        background.add_task(notify.send, f"{severity.title()} issue raised: {issue.ref} {title}",
+                            issue.description, [("Control", f"{item.ref} at {node.name}"),
+                                                ("Owner", issue.owner or "unassigned"),
+                                                ("Due", str(issue.due_date or "not set")),
+                                                ("Raised by", user.upn)], f"/issues/{issue.id}")
     return redirect(back, msg=f"Raised {issue.ref}.", anchor=f"item-{item.ref}")
 
 

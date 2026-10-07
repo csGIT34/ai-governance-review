@@ -49,6 +49,12 @@ EVIDENCE_REPO_BASE = os.environ.get("EVIDENCE_REPO_BASE", "").rstrip("/")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_API_URL = os.environ.get("GITHUB_API_URL", "")
 
+# Optional Teams notifications: a channel's incoming webhook URL (Teams Workflows
+# "post to a channel when a webhook request is received"). APP_BASE_URL makes the
+# notifications link back to the app, e.g. https://governance.internal.corp
+TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL", "")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")
+
 # Azure scope sync (management groups + subscriptions) and AI catalog enrichment.
 # Credentials resolve via DefaultAzureCredential (managed identity on Azure).
 AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID", "")

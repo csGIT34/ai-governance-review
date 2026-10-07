@@ -68,6 +68,14 @@ DEMO_SCOPE = [  # (azure_id, kind, name, parent azure_id)
 ]
 
 
+DEMO_QUERIES = {
+    "CLD-DATA-01": "resources\n| where type =~ 'microsoft.storage/storageaccounts'\n"
+                   "| project subscriptionId, name, allowBlobPublicAccess = properties.allowBlobPublicAccess",
+    "CLD-VULN-01": "securityresources\n| where type == 'microsoft.security/pricings'\n"
+                   "| project subscriptionId, plan = name, tier = properties.pricingTier",
+}
+
+
 def load_demo(db: Session):
     if not db.scalar(select(Library).where(Library.key == "demo-cloud-controls")):
         lib = audit.create(db, "system", Library(
@@ -77,7 +85,8 @@ def load_demo(db: Session):
         for pos, (ref, cat, title, desc, fw, freq) in enumerate(DEMO_CONTROLS):
             db.add(LibraryItem(library_id=lib.id, ref=ref, category=cat, title=title,
                                description=desc, framework_refs=fw, frequency=freq,
-                               owner="Cloud Platform team", position=pos))
+                               owner="Cloud Platform team", position=pos,
+                               evidence_query=DEMO_QUERIES.get(ref, "")))
     by_azure_id = {}
     for azure_id, kind, name, parent in DEMO_SCOPE:
         node = db.scalar(select(ScopeNode).where(ScopeNode.azure_id == azure_id))

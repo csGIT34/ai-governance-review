@@ -35,7 +35,7 @@
   {% for i in items %}
   <tr {% if not i.active %}style="opacity:.55"{% endif %}>
     <td><strong>{{ i.ref }}</strong>{% if i.severity %}<br><span class="badge {{ i.severity }}">{{ i.severity }}</span>{% endif %}</td>
-    <td>{{ i.title }}{% if not i.active %} <span class="badge">retired</span>{% endif %}<div class="meta">{{ i.description | truncate(220) }}</div></td>
+    <td>{{ i.title }}{% if not i.active %} <span class="badge">retired</span>{% endif %}{% if i.evidence_query %} <span class="badge controls" title="{{ i.evidence_query }}">Azure query</span>{% endif %}<div class="meta">{{ i.description | truncate(220) }}</div></td>
     <td class="meta">{{ i.category }}</td>
     <td class="meta">{{ i.framework_refs }}</td>
     <td class="meta">{{ i.owner }}{% if i.frequency %}<br>{{ i.frequency }}{% endif %}</td>
@@ -75,6 +75,8 @@
       </div>
       <label>Framework refs</label><input type="text" name="framework_refs" placeholder="NIST 800-53 AC-2; CIS Azure 1.1; SOC2 CC6.1">
       <label>Evidence expected / how to test</label><textarea name="guidance"></textarea>
+      <label>Azure evidence query (Resource Graph KQL, optional)</label>
+      <textarea name="evidence_query" style="font-family:monospace;font-size:0.82rem"></textarea>
       <p><button>Add</button></p>
     </form>
   </div>

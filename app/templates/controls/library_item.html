@@ -21,6 +21,13 @@
   <label>Framework refs</label><input type="text" name="framework_refs" value="{{ item.framework_refs }}">
   <label>{{ "Where to find the answer" if lib.kind == "checklist" else "Evidence expected / how to test" }}</label>
   <textarea name="guidance">{{ item.guidance }}</textarea>
+  {% if lib.kind == "controls" %}
+  <label>Azure evidence query (Resource Graph KQL, optional)</label>
+  <textarea name="evidence_query" style="font-family:monospace;font-size:0.82rem"
+            placeholder="securityresources | where type == 'microsoft.security/pricings' | project subscriptionId, name, tier = properties.pricingTier">{{ item.evidence_query }}</textarea>
+  <p class="meta">Preparers can run it for any scope level; the result (all subscriptions under that level) is
+    stored as a JSON evidence file. The app's identity needs Reader on those subscriptions.</p>
+  {% endif %}
   <label style="font-weight:normal"><input type="checkbox" name="active" {% if item.active %}checked{% endif %}> active (untick to retire - kept for history)</label>
   <p><button>Save</button></p>
 </form>

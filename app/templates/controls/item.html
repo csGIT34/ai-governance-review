@@ -11,6 +11,8 @@
   <p class="meta">{% if item.category %}{{ item.category }}{% endif %}{% if item.owner %} · owner {{ item.owner }}{% endif %}
     {% if item.frequency %} · {{ item.frequency }}{% endif %}{% if item.framework_refs %} · {{ item.framework_refs }}{% endif %}</p>
   {% if item.guidance %}<p class="csp-note prewrap">📍 <strong>Evidence expected:</strong> {{ item.guidance }}</p>{% endif %}
+  {% if item.evidence_query %}<details><summary class="meta" style="cursor:pointer">Azure evidence query</summary>
+    <pre>{{ item.evidence_query }}</pre></details>{% endif %}
 </div>
 
 <div class="layout">
@@ -70,6 +72,14 @@
           {% if current.kind != "subscription" %}An answer here covers everything below it.{% else %}Tip: if this control
           is implemented centrally, answer it at the management group instead.{% endif %}</p>
         {{ editor(a, item, current, None, user, return_to, status_choices, ratings, locked) }}
+      {% endif %}
+
+      {% if item.evidence_query and can(user, "preparer") and not locked and (r or not inherited_from) %}
+      <form method="post" action="/assessments/{{ a.id }}/items/{{ item.id }}/azure-evidence" class="noprint" style="margin-top:0.7rem">
+        <input type="hidden" name="node_id" value="{{ current.id }}">
+        <button class="secondary">Run Azure query &amp; attach result as evidence</button>
+        <span class="meta">covers every subscription under {{ current.name }}</span>
+      </form>
       {% endif %}
 
       {% if overrides_below %}

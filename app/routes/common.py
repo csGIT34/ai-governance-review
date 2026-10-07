@@ -1,13 +1,13 @@
 """Routes shared by every assessment kind: home, response editing and sign-off,
 evidence, artifacts, history, users."""
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response as HttpResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.datastructures import UploadFile
 from sqlalchemy.orm import Session
 
-from app import audit, auth, blob, config
+from app import audit, auth, blob, config, notify
 from app.auth import current_user, require
 from app.db import get_session
 from app.models import (Assessment, AssessmentItem, AssessmentScopeNode, Artifact, AuditEvent,
@@ -108,8 +108,8 @@ async def save_response(aid: int, request: Request, user: User = Depends(current
 
 
 @router.post("/assessments/{aid}/responses/transition")
-async def transition(aid: int, request: Request, user: User = Depends(current_user),
-                     db: Session = Depends(get_session)):
+async def transition(aid: int, request: Request, background: BackgroundTasks,
+                     user: User = Depends(current_user), db: Session = Depends(get_session)):
     form = await request.form()
     a = load_assessment(db, aid)
     item, node = item_and_node(db, a, form)
@@ -128,6 +128,14 @@ async def transition(aid: int, request: Request, user: User = Depends(current_us
         db.rollback()
         return redirect(back, error=f"{item.ref}: {err.message}", anchor=anchor(item))
     db.commit()
+    where = f"/assessments/{aid}/items/{item.id}?node={node.id}"
+    if action == "prepare":
+        background.add_task(notify.send, f"Ready for review: {item.ref} at {node.name}",
+                            item.title, [("Assessment", a.name), ("Prepared by", user.upn)], where)
+    elif action == "return":
+        background.add_task(notify.send, f"Returned to {resp.prepared_by}: {item.ref} at {node.name}",
+                            str(form.get("comment", "")), [("Assessment", a.name),
+                                                           ("Returned by", user.upn)], where)
     done = {"prepare": "marked prepared", "review": "signed off", "return": "returned to preparer",
             "reopen": "reopened"}[action]
     return redirect(back, msg=f"{item.ref} {done}.", anchor=anchor(item))
