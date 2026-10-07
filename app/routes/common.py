@@ -126,6 +126,8 @@ async def comment(aid: int, request: Request, user: User = Depends(require("prep
     a = load_assessment(db, aid)
     item, node = item_and_node(db, a, form)
     back = back_to(form, a)
+    if reason := responses.lock_reason(a, None):
+        return redirect(back, error=reason)
     body = str(form.get("body", "")).strip()
     if body:
         resp = responses.find(db, item.id, node.id) or responses.save(db, user, a, item, node, {}, 0)
@@ -205,6 +207,8 @@ async def upload_artifact(aid: int, request: Request, user: User = Depends(requi
     form = await request.form()
     a = load_assessment(db, aid)
     back = back_to(form, a)
+    if reason := responses.lock_reason(a, None):
+        return redirect(back, error=reason)
     upload = form.get("file")
     if not isinstance(upload, UploadFile) or not upload.filename:
         return redirect(back, error="Choose a file to upload.")

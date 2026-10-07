@@ -206,6 +206,13 @@ def test_close_requires_complete_reviewed_answers_then_locks(client, session, se
     as_user(client, PREPARER)
     assert answer(client, session, aid, "IAM-01", "Contoso tenant (demo)", version=r.version,
                   narrative="after close").status_code == 423
+    resp = client.post(f"/assessments/{aid}/artifacts", files={"file": ("late.txt", b"x", "text/plain")},
+                       follow_redirects=False)
+    assert "closed" in unquote(resp.headers["location"])
+    resp = client.post(f"/assessments/{aid}/responses/comment", data={
+        "item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid), "body": "late"},
+        follow_redirects=False)
+    assert "closed" in unquote(resp.headers["location"])
     as_user(client, REVIEWER)
     assert client.post(f"/assessments/{aid}/reopen", data={"reason": "x"}).status_code == 403
     as_user(client, ADMIN)
