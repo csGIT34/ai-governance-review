@@ -12,6 +12,10 @@ services:
       # NEVER use dev mode outside your machine.
       AUTH_MODE: dev
       EVIDENCE_REPO_BASE: ${EVIDENCE_REPO_BASE:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-}
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
       # --- Optional: Azure scope sync + AI catalog enrichment (see README) ---
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
       AZURE_ROOT_MANAGEMENT_GROUP: ${AZURE_ROOT_MANAGEMENT_GROUP:-}

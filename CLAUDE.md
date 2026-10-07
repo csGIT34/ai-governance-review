@@ -71,6 +71,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 Audit-evidence app: teams record **proof that cloud controls are performed** (Azure RCSA) and
 review AI model enablement requests. Auditors rely on the output, so **integrity beats features**.
 Read `docs/ARCHITECTURE.md` before non-trivial changes; open work is in `docs/ROADMAP.md`.
+Setting this up at work for the first time? Follow `docs/WORK_ONBOARDING.md` (`/onboard-work`).
+Deployment target and settings: `docs/AZURE_DEPLOYMENT.md`. **Ask the owner before writing any
+Terraform** (they have pattern modules), before adding CI workflows, and before creating paid
+Azure resources.
 
 ## Stack & commands
 
@@ -81,6 +85,7 @@ tests) · Azure Blob · Entra ID via Container Apps Easy Auth · vanilla JS in `
 make test        # pytest on SQLite - run before every commit
 make test-pg     # same suite on Postgres (Docker) - run when touching models/queries/migrations
 make e2e         # Playwright browser test of autosave - run when touching app.js / _response.html
+make test-azure-emulated  # managed identity + Blob OAuth against the Floci AZ emulator (no Azure cost)
 make up          # docker compose: app on :8000 with AUTH_MODE=dev user switcher
 make revision m="..."   # after editing app/models.py; review the generated file
 ```
@@ -91,7 +96,8 @@ make revision m="..."   # after editing app/models.py; review the generated file
    `record`) in the same transaction. Never `setattr` + commit on a model without it.
 2. **`audit_events` is append-only.** Never UPDATE/DELETE it (a Postgres trigger rejects it anyway).
 3. **Assessments are frozen snapshots.** Never make `assessment_items` / `assessment_scope_nodes`
-   follow later library or scope edits, and never rewrite them after creation.
+   follow later library or scope edits, and never rewrite them after creation. The one
+   exception is `assessment_items.assignee` (who answers), changed only via audited assignment.
 4. **Evidence is immutable.** Artifacts are never overwritten (new blob path each upload);
    evidence links are soft-deleted (`removed_at`). Scope nodes are deactivated, not deleted.
 5. **Locks and sign-off live in `services/responses.py`** (`lock_reason`, `transition`). New write
@@ -115,8 +121,12 @@ make revision m="..."   # after editing app/models.py; review the generated file
 - Tests: `tests/conftest.py` gives `client` (dev auth, starts as admin), `session`, `as_user()`,
   in-memory blobs, and a fresh schema per test. Add a test for every behaviour change, and
   make it pass on both SQLite and Postgres.
-- Keep the Azure/GCP calls stubbable: tests monkeypatch module functions such as
-  `scope.fetch_hierarchy`, `azure_catalog.enrich` and `reference_docs.fetch`.
+- Keep external calls stubbable: tests monkeypatch module functions such as
+  `scope.fetch_hierarchy`, `scope._token`, `github._get`, `notify._post`, `azure_catalog.enrich`
+  and `reference_docs.fetch`. Notifications go through `BackgroundTasks` after commit and must
+  never raise into a request.
+- Azure auth: never add account keys or DB passwords for Azure. Blob uses `BLOB_ACCOUNT_URL`
+  + `DefaultAzureCredential`; Postgres uses `DATABASE_AUTH=entra` (token as password, `app/db.py`).
 
 ## Gotchas
 
@@ -126,3 +136,7 @@ make revision m="..."   # after editing app/models.py; review the generated file
 - `/assessments/{aid:int}` must keep its `:int`, or it swallows `/assessments/new/...`.
 - Don't put `<div>` inside `<p>` in templates: the parser closes the `<p>` and the layout breaks.
 - Alembic `Config.set_main_option` needs `%` escaped as `%%`.
+- New NOT NULL columns need `server_default` in the migration (existing rows), and named
+  constraints (use `op.batch_alter_table` so SQLite works too).
+- Azure SDK clients refuse bearer tokens over plain HTTP; emulators need TLS and their whole
+  CA chain in `REQUESTS_CA_BUNDLE` (see `tests/test_azure_emulated.py`).

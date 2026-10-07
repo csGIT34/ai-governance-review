@@ -5,9 +5,11 @@ Every answer, sign-off, piece of evidence and change is recorded with who did it
 
 - **Control assessments (RCSA)** for Azure. Answer each control from your control document
   for every subscription. Answer once at a management group and the subscriptions under it
-  inherit, unless they override. Link evidence (SHA-pinned links to the audit-evidence repo, or
-  uploaded files), have a second person sign off each answer, raise issues for gaps, then close
-  and attest. Export everything to Excel for the auditors.
+  inherit, unless they override. Link evidence (commit-pinned links to the audit-evidence repo,
+  uploaded files, or Azure Resource Graph query results), have a second person sign off each
+  answer, raise issues for gaps, then close and attest. Export everything to Excel for the
+  auditors. Next quarter starts from last quarter's answers; controls are assigned to people,
+  who see what's theirs under **My work**; reviewers can sign off in bulk; Teams gets notified.
 - **AI model / feature enablement reviews** on Azure and GCP: a 45-item checklist with catalog
   auto-fill, CSP terms snapshots and a reviewer decision. See
   [docs/ai-review-framework.md](docs/ai-review-framework.md).
@@ -37,6 +39,7 @@ pip install -r requirements-dev.txt
 make test                  # SQLite, no services needed
 make test-pg               # same suite on Postgres (starts a throwaway container)
 make e2e                   # browser test of autosave (needs: playwright install chromium)
+make test-azure-emulated   # managed identity + Blob over OAuth against the Floci AZ emulator
 ```
 
 ## Using it (control assessment)
@@ -62,13 +65,19 @@ make e2e                   # browser test of autosave (needs: playwright install
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | local Postgres | SQLAlchemy URL, e.g. `postgresql+psycopg://user:pw@host:5432/db?sslmode=require` |
-| `BLOB_CONNECTION_STRING` | Azurite | Storage account for files |
+| `DATABASE_AUTH` | `password` | `entra`: passwordless, the managed identity's Entra token is the password |
+| `RUN_MIGRATIONS` | `true` | Run migrations + seeding on container start; `false` on Azure (a job does it) |
+| `BLOB_ACCOUNT_URL` | — | `https://<account>.blob.core.windows.net`: use the managed identity (no keys) |
+| `BLOB_CONNECTION_STRING` | Azurite | Used when `BLOB_ACCOUNT_URL` is empty |
 | `BLOB_CONTAINER` | `artifacts` | |
 | `MAX_UPLOAD_MB` | `50` | |
 | `AUTH_MODE` | `easyauth` | `easyauth` (behind Container Apps auth) or `dev` (local only, never deploy) |
 | `ADMIN_UPNS` | — | Comma-separated UPNs made admin on first sign-in |
 | `DEFAULT_ROLE` | `viewer` | Role for everyone else on first sign-in |
 | `EVIDENCE_REPO_BASE` | — | e.g. `https://github.corp.com/org/audit-evidence`: links under it are checked for SHA pinning |
+| `GITHUB_TOKEN`, `GITHUB_API_URL` | — | Pin branch links to commits via the API (Enterprise: `https://<host>/api/v3`) |
+| `TEAMS_WEBHOOK_URL`, `APP_BASE_URL` | — | Teams channel notifications, with links back to the app |
+| `AZURE_CLIENT_ID` | — | Client id of the user-assigned managed identity (Azure) |
 | `AZURE_TENANT_ID` | — | Enables scope sync (root management group = tenant root group) |
 | `AZURE_ROOT_MANAGEMENT_GROUP` | tenant id | Sync from a lower management group instead |
 | `AZURE_SUBSCRIPTION_ID`, `GOOGLE_CLOUD_PROJECT` | — | AI review catalog enrichment (optional) |
@@ -80,36 +89,20 @@ Azure calls use `DefaultAzureCredential`: the managed identity on Azure, or
 
 ## Deploying to Azure
 
-One container. Services:
-
-| Local (compose) | Azure |
-|---|---|
-| `app` | **Azure Container Apps** with built-in authentication (Microsoft / Entra ID provider, "require authentication") and a system-assigned managed identity |
-| `db` (Postgres 16) | **Azure Database for PostgreSQL Flexible Server**, private access, `sslmode=require` |
-| `azurite` | **Storage account** with blob versioning, soft delete and a time-based immutability policy on the `artifacts` container |
-
-Checklist:
-
-1. Container App env: `DATABASE_URL` (secret / Key Vault reference), `BLOB_CONNECTION_STRING`,
-   `AUTH_MODE=easyauth`, `ADMIN_UPNS=<you>`, `AZURE_TENANT_ID`, `EVIDENCE_REPO_BASE`.
-2. Easy Auth **must** be enabled with unauthenticated requests rejected. The app trusts its
-   identity headers.
-3. Managed identity: **Management Group Reader** on the root (or chosen) management group for
-   scope sync. Add **Reader** on a subscription for AI catalog enrichment if used.
-4. The container runs `alembic upgrade head` on start. With more than one replica, run it as a
-   separate job before rolling out instead.
-5. Make the audit log append-only for the app's database role too (the migration's trigger
-   already blocks UPDATE/DELETE):
-   ```sql
-   REVOKE UPDATE, DELETE, TRUNCATE ON audit_events FROM <app_role>;
-   ```
-6. Postgres backups / PITR retention and blob immutability should match your evidence
-   retention policy.
+Target: **Azure Container Apps** (internal environment in a VNet) + **Azure Database for
+PostgreSQL Flexible Server** + **Storage account**, everything private and authenticated with
+managed identities. The full spec (resources, settings, roles, private DNS, egress, Easy
+Auth, environment variables, database roles, jobs, rollout order and a verification
+checklist) is in [docs/AZURE_DEPLOYMENT.md](docs/AZURE_DEPLOYMENT.md). It's meant to be mapped
+onto your Terraform pattern modules.
 
 ## Moving this repo to work
 
-- Push to your work GitHub, then point your work Claude Code at `CLAUDE.md`. It has the
-  project map, commands and the rules that must not be broken.
+- Push to your work GitHub, open it in Claude Code and run **`/onboard-work <governance repo>`**.
+  It follows [docs/WORK_ONBOARDING.md](docs/WORK_ONBOARDING.md): read the governance repo, map
+  the controls and evidence layout, map the Azure environment, then deploy using your
+  Terraform patterns, stopping for your review at each step. `CLAUDE.md` has the project map,
+  commands and the rules that must not be broken.
 - Commit history carries the author email of whoever made each commit here. Squash or rewrite
   it first if that matters at work.
 - CI (`.github/workflows/ci.yml`) runs the tests on SQLite and Postgres plus the browser test.

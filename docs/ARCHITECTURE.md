@@ -22,8 +22,11 @@ copy (a *library*) only so people have something to answer against.
   for PostgreSQL Flexible Server) and in `docker compose`; **SQLite** for the test suite.
 - **Azure Blob Storage** for files (Azurite locally).
 - **Entra ID** sign-in through Azure Container Apps built-in authentication ("Easy Auth").
-- Optional outbound calls: Azure Management Groups API (scope sync), Azure / Vertex AI model
-  catalogs and CSP terms pages (AI reviews only), all via the app's managed identity.
+- Optional outbound calls: Azure Management Groups API (scope sync), Azure Resource Graph
+  (evidence queries), GitHub Enterprise API (link pinning), a Teams webhook, Azure / Vertex AI
+  model catalogs and CSP terms pages (AI reviews only). Azure calls use the app's managed
+  identity; so do Blob Storage (`BLOB_ACCOUNT_URL`) and Postgres (`DATABASE_AUTH=entra`).
+  Deployment: [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md).
 
 ## Code map
 
@@ -36,13 +39,18 @@ app/
   audit.py           create / apply_changes / record: the ONLY way to change audited data
   auth.py            identity (Easy Auth headers or dev switcher), roles, CSRF guard
   web.py             render() and redirect() helpers, Jinja filters
-  blob.py            write-once blob upload/download
+  blob.py            write-once blob upload/download (managed identity or connection string)
+  notify.py          optional Teams webhook notifications (sent after commit, never raise)
+  jobs.py            scheduled jobs (python -m app.jobs due-issues)
   seed.py            built-in AI checklist library, dev users, --demo data
   checklist.py       seed data for the AI checklist (45 items)
   services/          business logic, no HTTP
-    assessments.py   create (with snapshots), scope Tree, inheritance, rollup, close readiness
+    assessments.py   create (with snapshots), scope Tree, inheritance, rollup, close readiness,
+                     carry forward from a previous assessment
     responses.py     save with optimistic locking, lock rules, sign-off state machine
     evidence.py      evidence links (repo pin detection), immutable artifacts
+    github.py        pin branch links to commits via the GitHub (Enterprise) API
+    azure_evidence.py  run a control's Resource Graph query, attach the result as evidence
     libraries.py     CSV / Excel-paste import
     scope.py         Azure management-group sync
     export.py        Excel workbook
@@ -51,6 +59,7 @@ app/
     common.py        home, autosave, sign-off, evidence, artifacts, history, users
     controls.py      libraries, scope, control assessments, close, export, report
     issues.py        issues
+    work.py          control assignment, /my work queue, review queue with bulk sign-off
     ai.py            AI reviews + reference-doc settings
   enrichment/        AI review: catalog clients, auto-fill rules, reference docs (+ JSON defaults)
   templates/         Jinja; _response.html is the shared answer editor
@@ -81,7 +90,12 @@ Key rules:
 
 - **Snapshots.** Creating an assessment copies the active library items into
   `assessment_items` and the active scope subtree into `assessment_scope_nodes`. Library edits,
-  re-imports and scope syncs never change an existing assessment.
+  re-imports and scope syncs never change an existing assessment. The one mutable field is
+  `assessment_items.assignee` (who answers the control), and changing it is audited.
+- **Carry forward.** A new assessment can start from a previous one: answers are copied as
+  drafts, matched by control `ref` and underlying `scope_node_id`, keeping narrative,
+  applicability and test procedure, never ratings, results, exceptions or evidence.
+  `responses.carried_from_id` records the source.
 - **No row means no answer.** A `responses` row exists only where someone answered.
 - **Inheritance** (`services/assessments.effective`): a node's effective answer is its own
   response, else the nearest ancestor's. A subscription inherits from its management group,
