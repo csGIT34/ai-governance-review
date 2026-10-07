@@ -9,6 +9,11 @@ def _set(name: str) -> set[str]:
 # local compose = the postgres container; tests = SQLite.
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql+psycopg://governance:governance@localhost:5432/governance")
+# password: the password is in DATABASE_URL (local, or a Key Vault-backed secret).
+# entra   : passwordless - each new connection uses a Microsoft Entra token from the
+#           managed identity as its password. DATABASE_URL then has the identity's
+#           Postgres role name as the user and no password.
+DATABASE_AUTH = os.environ.get("DATABASE_AUTH", "password")
 
 # Blob storage (defaults target Azurite; override in Azure)
 BLOB_CONNECTION_STRING = os.environ.get(
@@ -18,6 +23,9 @@ BLOB_CONNECTION_STRING = os.environ.get(
     "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
     "BlobEndpoint=http://localhost:10000/devstoreaccount1;",
 )
+# On Azure, set BLOB_ACCOUNT_URL (https://<account>.blob.core.windows.net) instead of a
+# connection string: the app then authenticates with its managed identity (no keys).
+BLOB_ACCOUNT_URL = os.environ.get("BLOB_ACCOUNT_URL", "")
 BLOB_CONTAINER = os.environ.get("BLOB_CONTAINER", "artifacts")
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "50"))
 

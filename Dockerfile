@@ -23,6 +23,8 @@ RUN useradd --system --uid 10001 app
 USER app
 
 EXPOSE 8000
-# Migrations run on start. Fine for a single replica; with several replicas run
-# `alembic upgrade head` as a separate job before rolling out instead.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]
+# Local/compose: migrations + seeding run on start. On Azure Container Apps set
+# RUN_MIGRATIONS=false and run them as a Container Apps job with the command
+#   sh -c "alembic upgrade head && python -m app.seed"
+# before each rollout (see docs/AZURE_DEPLOYMENT.md).
+CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-true}\" = true ]; then alembic upgrade head && python -m app.seed; fi && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

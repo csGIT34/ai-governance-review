@@ -1,7 +1,7 @@
 # Common tasks. Assumes an activated venv with requirements-dev.txt installed.
 PG_TEST_URL ?= postgresql+psycopg://governance:governance@localhost:55432/governance
 
-.PHONY: up seed-demo test test-pg e2e migrate revision
+.PHONY: up seed-demo test test-pg test-azure-emulated e2e migrate revision
 
 up:            ## run the app + Postgres + Azurite on http://localhost:8000
 	docker compose up --build
@@ -17,6 +17,11 @@ test-pg:       ## full suite on a throwaway Postgres container
 	  -e POSTGRES_DB=governance -p 55432:5432 postgres:16-alpine >/dev/null
 	until docker exec govtest-pg pg_isready -U governance >/dev/null 2>&1; do sleep 1; done
 	TEST_DATABASE_URL=$(PG_TEST_URL) python -m pytest -q; status=$$?; docker stop govtest-pg >/dev/null; exit $$status
+
+test-azure-emulated: ## managed identity + blob OAuth against the Floci AZ emulator (no Azure cost)
+	docker run -d --rm --name govtest-floci -p 4577:4577 -e FLOCI_AZ_TLS_ENABLED=true floci/floci-az:latest >/dev/null
+	until curl -sk -o /dev/null https://localhost:4577; do sleep 1; done
+	FLOCI_AZ_URL=https://localhost:4577 python -m pytest -q tests/test_azure_emulated.py; status=$$?; docker stop govtest-floci >/dev/null; exit $$status
 
 e2e:           ## browser test of autosave (run `playwright install chromium` once)
 	python -m pytest -q tests/test_e2e_autosave.py

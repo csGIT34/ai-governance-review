@@ -15,18 +15,37 @@ SessionLocal = sessionmaker(expire_on_commit=False)
 _engine: Engine | None = None
 
 
-def init_engine(url: str | None = None) -> Engine:
-    global _engine
-    url = url or config.DATABASE_URL
+# Token audience for Azure Database for PostgreSQL with Microsoft Entra authentication.
+POSTGRES_ENTRA_SCOPE = "https://ossrdbms-aad.database.windows.net/.default"
+
+
+def build_engine(url: str) -> Engine:
+    """Engine for any supported URL; also used by migrations (migrations/env.py)."""
     if url.startswith("sqlite"):
         kwargs = {"connect_args": {"check_same_thread": False}}
         if url in ("sqlite://", "sqlite:///:memory:"):
             kwargs["poolclass"] = StaticPool
-        _engine = create_engine(url, **kwargs)
-        event.listen(_engine, "connect",
-                     lambda conn, _rec: conn.execute("PRAGMA foreign_keys=ON"))
-    else:
-        _engine = create_engine(url, pool_pre_ping=True)
+        eng = create_engine(url, **kwargs)
+        event.listen(eng, "connect", lambda conn, _rec: conn.execute("PRAGMA foreign_keys=ON"))
+        return eng
+    if config.DATABASE_AUTH != "entra":
+        return create_engine(url, pool_pre_ping=True)
+    # Passwordless: the server checks the token only when a connection opens, so each new
+    # connection asks for one (DefaultAzureCredential caches and refreshes it).
+    eng = create_engine(url, pool_pre_ping=True)
+    from azure.identity import DefaultAzureCredential
+    credential = DefaultAzureCredential()
+
+    @event.listens_for(eng, "do_connect")
+    def _entra_password(dialect, conn_rec, cargs, cparams):
+        cparams["password"] = credential.get_token(POSTGRES_ENTRA_SCOPE).token
+
+    return eng
+
+
+def init_engine(url: str | None = None) -> Engine:
+    global _engine
+    _engine = build_engine(url or config.DATABASE_URL)
     SessionLocal.configure(bind=_engine)
     return _engine
 

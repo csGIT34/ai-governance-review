@@ -1,8 +1,6 @@
 from alembic import context
-from sqlalchemy import create_engine
-
 from app import config, models  # noqa: F401  (registers tables on Base.metadata)
-from app.db import Base
+from app.db import Base, build_engine
 
 url = context.config.get_main_option("sqlalchemy.url") or config.DATABASE_URL
 
@@ -14,7 +12,7 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    engine = create_engine(url)
+    engine = build_engine(url)
     with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=Base.metadata,
                           render_as_batch=connection.dialect.name == "sqlite")
