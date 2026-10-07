@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Activity — {{ a.name }}</h1>
+<p class="meta"><a href="/assessments/{{ a.id }}">← back to the assessment</a> · every change, newest first
+  (append-only audit log, {{ events | length }} events{% if events | length >= 2000 %}, latest 2000 shown — full log in the Excel export{% endif %}).</p>
+<table>
+  <tr><th>When</th><th>Who</th><th>What</th><th>Changes</th></tr>
+  {% for e in events %}
+  <tr>
+    <td class="meta">{{ e.at | dt }}</td>
+    <td>{{ e.actor }}</td>
+    <td>{{ e.action }} <span class="meta">{{ e.entity_type }} #{{ e.entity_id }}</span>{% if e.note %}<div class="meta"><em>{{ e.note }}</em></div>{% endif %}</td>
+    <td class="meta">
+      {% for field, change in e.changes.items() %}
+        {% if field not in ("assessment_id", "updated_by") %}
+        <div>{{ field }}: {% if change[0] not in (None, "") %}<s>{{ change[0] | string | truncate(80) }}</s> → {% endif %}{{ change[1] | string | truncate(120) if change[1] is not none else "∅" }}</div>
+        {% endif %}
+      {% endfor %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

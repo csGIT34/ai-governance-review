@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Users</h1>
+<p class="meta">People appear here the first time they sign in (Entra ID), with the
+  <strong>{{ config.DEFAULT_ROLE }}</strong> role. Roles:
+  {% for r in roles %}<strong>{{ r }}</strong> — {{ role_help[r] }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>
+<table>
+  <tr><th>User</th><th>Last seen</th><th>Role / active</th></tr>
+  {% for u in users %}
+  <tr>
+    <td>{{ u.display_name }}<div class="meta">{{ u.upn }}</div></td>
+    <td class="meta">{{ u.last_seen_at | dt }}</td>
+    <td>
+      <form method="post" action="/admin/users/{{ u.id }}" class="row">
+        <select name="role" style="width:auto">
+          {% for r in roles %}<option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+        </select>
+        <label style="margin:0;font-weight:normal"><input type="checkbox" name="active" {% if u.active %}checked{% endif %}> active</label>
+        <button class="secondary">Save</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

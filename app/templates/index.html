@@ -1,28 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Reviews</h1>
-{% if reviews %}
+<h1>Assessments</h1>
+{% if assessments %}
 <table>
   <tr>
-    <th>CSP</th><th>Service</th><th>Model / feature</th><th>Requested by</th>
-    <th>Status</th><th>Checklist</th><th>Created</th>
+    <th>Type</th><th>Assessment</th><th>Status</th><th>Progress</th><th>Created</th>
   </tr>
-  {% for r in reviews %}
+  {% for a, p in assessments %}
   <tr>
-    <td><span class="badge {{ r.csp }}">{{ r.csp | upper }}</span></td>
-    <td>{{ r.service_name }}</td>
-    <td><a href="/reviews/{{ r.id }}">{{ r.model_name }}{% if r.model_version %} ({{ r.model_version }}){% endif %}</a></td>
-    <td>{{ r.requested_by or "—" }}</td>
-    <td><span class="badge {{ r.status }}">{{ r.status | replace("_", " ") }}</span></td>
     <td>
-      <span class="progressbar"><div style="width: {{ (100 * r.progress.done / r.progress.total) | round }}%"></div></span>
-      <span class="meta">{{ r.progress.done }}/{{ r.progress.total }}</span>
+      {% if a.kind == "checklist" %}<span class="badge {{ a.context.csp }}">{{ a.context.csp | upper }}</span> <span class="meta">AI review</span>
+      {% else %}<span class="badge controls">RCSA</span>{% endif %}
     </td>
-    <td class="meta">{{ r.created_at[:10] }}</td>
+    <td><a href="/assessments/{{ a.id }}">{{ a.name }}</a>
+      {% if a.kind == "controls" and (a.period_start or a.period_end) %}<div class="meta">{{ a.period_start | d }} → {{ a.period_end | d }} · {{ a.context.scope_root }}</div>{% endif %}
+      {% if a.kind == "checklist" and a.context.requested_by %}<div class="meta">requested by {{ a.context.requested_by }}</div>{% endif %}
+    </td>
+    <td><span class="badge {{ a.status }}">{{ a.status | replace("_", " ") }}</span></td>
+    <td>
+      <span class="progressbar"><div style="width: {{ (100 * p.done / p.total) | round }}%"></div></span>
+      <span class="meta">{{ p.done }}/{{ p.total }}</span>
+    </td>
+    <td class="meta">{{ a.created_at | d }}<br>{{ a.created_by }}</td>
   </tr>
   {% endfor %}
 </table>
 {% else %}
-<div class="card">No reviews yet. <a href="/reviews/new">Create the first one</a>.</div>
+<div class="card">No assessments yet.
+  {% if user and can(user, "preparer") %}Start a <a href="/assessments/new/controls">control assessment</a>
+  or an <a href="/assessments/new/ai">AI enablement review</a>.{% endif %}
+</div>
 {% endif %}
 {% endblock %}

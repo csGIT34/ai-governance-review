@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% from "_response.html" import editor %}
+{% block title %}{{ a.name }}{% endblock %}
+{% block content %}
+{% set back = "/assessments/" ~ a.id %}
+
+<h1>
+  <span class="badge {{ ctx.csp }}">{{ ctx.csp | upper }}</span>
+  {{ ctx.service_name }} — {{ ctx.model_name }}{% if ctx.model_version %} ({{ ctx.model_version }}){% endif %}
+  <span class="badge {{ a.status }}">{{ a.status | replace("_", " ") }}</span>
+</h1>
+
+<div class="card">
+  <div class="grid2">
+    <div>
+      <p class="meta">Requested by <strong>{{ ctx.requested_by or "—" }}</strong>
+         · regions: <strong>{{ ctx.regions or "—" }}</strong>
+         · created {{ a.created_at | d }} by {{ a.created_by }}
+         · {{ a.library_snapshot.name }} v{{ a.library_snapshot.source_version }}</p>
+      <p class="prewrap">{{ ctx.justification or "" }}</p>
+    </div>
+    <div style="text-align:right">
+      <p>
+        <span class="progressbar"><div style="width: {{ (100 * progress.done / progress.total) | round }}%"></div></span>
+        <span class="meta">{{ progress.done }}/{{ progress.total }} items reviewed</span>
+      </p>
+      {% if blocker_gaps %}
+        <p class="meta"><span class="badge blocker">{{ blocker_gaps | length }} blocker(s) open</span>
+        {% for g in blocker_gaps %}<a href="#item-{{ g.ref }}">{{ g.ref }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+      {% else %}
+        <p class="meta"><span class="badge approved">All blockers cleared</span></p>
+      {% endif %}
+      <p><a href="/assessments/{{ a.id }}/export.json">Export JSON</a> · <a href="/assessments/{{ a.id }}/activity">Activity log</a></p>
+    </div>
+  </div>
+</div>
+
+{% set enriched = a.enrichment and not a.enrichment.error %}
+{% set requester = groups | selectattr("id", "equalto", "requester") | first %}
+{% set enrich_group = groups | selectattr("id", "equalto", "enrich") | first %}
+
+<h2>Start here</h2>
+<div class="card">
+  <ol style="margin:0.3rem 0 0.3rem 1.2rem; padding:0">
+    <li style="margin-bottom:0.4rem">
+      {% if enriched %}✔{% endif %} <strong>Fetch the catalog snapshot</strong> (below) —
+      auto-fills {{ enrich_group["items"] | length }} items
+      ({% for i in enrich_group["items"] %}{{ i.ref }}{% if not loop.last %}, {% endif %}{% endfor %}).
+    </li>
+    <li style="margin-bottom:0.4rem">
+      {% if not requester.open_refs %}✔{% endif %} <strong>Ask the requester</strong> —
+      justification, regions, data classification, traffic forecast
+      ({% for i in requester["items"] %}{{ i.ref }}{% if not loop.last %}, {% endif %}{% endfor %}).
+      One message covers all {{ requester["items"] | length }}.
+    </li>
+    <li>
+      <strong>Work down the checklist</strong> — answers save automatically as you type.
+      Sections are ordered by where the data comes from. Clear the
+      <span class="badge blocker">blocker</span> items first: they gate unconditional approval.
+      Gaps in <span class="badge required">required</span> items become conditions on the decision.
+    </li>
+  </ol>
+</div>
+
+<h2>CSP catalog enrichment</h2>
+<div class="card">
+  {% if a.enrichment %}
+    {% if a.enrichment.error %}
+      <p class="error">{{ a.enrichment.error }}</p>
+    {% else %}
+      <p class="meta">Snapshot from <strong>{{ a.enrichment.source }}</strong> at {{ a.enrichment.fetched_at | dt }}</p>
+      {% if a.enrichment.match_count == 0 %}
+        <p class="error">No catalog match for "{{ a.enrichment.query }}".
+        {% if a.enrichment.suggestions %}Closest catalog ids:
+          <strong>{{ a.enrichment.suggestions | join(", ") }}</strong>.{% endif %}
+        The model id is set at review creation - if it's wrong, create a new review with the exact id.</p>
+      {% endif %}
+      <details><summary class="meta">Snapshot JSON</summary><pre>{{ a.enrichment | tojson(indent=2) }}</pre></details>
+    {% endif %}
+  {% else %}
+    <p class="meta">No catalog snapshot yet. Pulls lifecycle status, deprecation dates and
+    capabilities from the {{ "Azure model catalog" if ctx.csp == "azure" else "Vertex AI publisher catalog" }}
+    and stores them as a dated artifact.</p>
+  {% endif %}
+  {% if can(user, "preparer") %}
+  <form method="post" action="/assessments/{{ a.id }}/enrich" class="noprint">
+    <button type="submit" class="secondary">{{ "Refresh" if a.enrichment else "Fetch" }} catalog snapshot</button>
+  </form>
+  {% endif %}
+</div>
+
+<h2>Review checklist</h2>
+{% for group in groups %}
+<div class="card">
+  <h2 style="margin-top:0">{{ loop.index }}. {{ group.label }}
+    {% if group.open_refs %}<span class="badge in_review">{{ group.open_refs | length }} open</span>
+    {% else %}<span class="badge approved">done</span>{% endif %}
+  </h2>
+  <p class="meta">{{ group.hint }}</p>
+  {% for item in group["items"] %}
+  {% set r = resp_by_item.get(item.id) %}
+  <div class="item" id="item-{{ item.ref }}">
+    <div class="head">
+      <strong>{{ item.ref }}</strong>
+      <span>{{ item.title }}</span>
+      {% if item.severity %}<span class="badge {{ item.severity }}">{{ item.severity }}</span>{% endif %}
+      <span class="meta">{{ item.category }}</span>
+    </div>
+    <p class="guidance">{{ item.description }}</p>
+    {% if item.guidance %}<p class="csp-note">📍 <strong>Where:</strong> {{ item.guidance }}</p>{% endif %}
+    {% if item.extra.azure and ctx.csp == "azure" %}<p class="csp-note">☁️ <strong>Azure:</strong> {{ item.extra.azure }}</p>{% endif %}
+    {% if item.extra.gcp and ctx.csp == "gcp" %}<p class="csp-note">☁️ <strong>GCP:</strong> {{ item.extra.gcp }}</p>{% endif %}
+    {{ editor(a, item, node, r, user, back, status_choices) }}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<h2>Artifacts</h2>
+<div class="card">
+  {% if artifacts %}
+  <table>
+    <tr><th>File</th><th>Size</th><th>sha256</th><th>Uploaded</th></tr>
+    {% for x in artifacts %}
+    <tr>
+      <td><a href="/artifacts/{{ x.id }}">{{ x.filename }}</a></td>
+      <td class="meta">{{ (x.size / 1024) | round(1) }} KB</td>
+      <td class="meta" title="{{ x.sha256 }}">{{ x.sha256[:12] }}…</td>
+      <td class="meta">{{ x.uploaded_by }} · {{ x.uploaded_at | dt }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="meta">No artifacts yet. Upload evidence on an item above, or general files here.</p>
+  {% endif %}
+  {% if can(user, "preparer") %}
+  <form method="post" action="/assessments/{{ a.id }}/artifacts" enctype="multipart/form-data" class="row noprint" style="margin-top:0.8rem">
+    <input type="hidden" name="return_to" value="{{ back }}">
+    <input type="file" name="file" required style="flex:1">
+    <button type="submit" class="secondary">Upload</button>
+  </form>
+  <hr>
+  <form method="post" action="/assessments/{{ a.id }}/reference-docs" class="noprint">
+    <button type="submit" class="secondary">Fetch CSP reference docs</button>
+  </form>
+  {% endif %}
+  <p class="meta">Saves dated PDF copies of the {{ "Microsoft" if ctx.csp == "azure" else "Google" }}
+  data-privacy and terms pages and links them as evidence on the related checklist items. Items with
+  a curated standard position are auto-filled with [auto] notes; use-case judgments stay yours. If a
+  source page has changed since its position was validated, the position is withheld and the item
+  is flagged instead. Affected items:
+  {% for d in ref_docs %}{{ d.title }} ({{ d["items"] | join(", ") }}){% if not loop.last %} · {% endif %}{% endfor %}.</p>
+  {% if internal_docs %}
+  <p class="meta"><strong>Internal documents</strong> (linked as evidence on their items, not snapshotted):
+  {% for d in internal_docs %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.title }}</a>{% if d["items"] %} ({{ d["items"] | join(", ") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}.</p>
+  {% endif %}
+</div>
+
+<h2 id="decision">Decision</h2>
+<div class="card">
+  {% if a.decision %}
+  <p>
+    <span class="badge {{ a.decision.outcome }}">{{ a.decision.outcome | replace("_", " ") }}</span>
+    by <strong>{{ a.decision.approver_name or a.decision.approver }}</strong> on {{ a.decision.decided_at | d }}
+    {% if a.decision.re_review_date %} · re-review by <strong>{{ a.decision.re_review_date }}</strong>{% endif %}
+  </p>
+  {% if a.decision.conditions %}<p class="prewrap"><strong>Conditions / rationale:</strong> {{ a.decision.conditions }}</p>{% endif %}
+  {% if past_decisions %}
+  <details><summary class="meta">{{ past_decisions | length }} superseded decision(s)</summary>
+    <ul class="history-list">
+    {% for e in past_decisions %}{% set d = e.changes.decision[1] %}
+      <li>{{ d.outcome }} by {{ d.approver }} on {{ d.decided_at | d }}{% if d.conditions %} — {{ d.conditions }}{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  <hr>
+  {% endif %}
+  {% if can(user, "reviewer") %}
+  {% if a.decision %}<p class="meta">Record a new decision to supersede (the old one stays in the history):</p>{% endif %}
+  <form method="post" action="/assessments/{{ a.id }}/decision">
+    <div class="grid2">
+      <div>
+        <label>Outcome</label>
+        <select name="outcome" required>
+          <option value="approved">Approved</option>
+          <option value="conditional">Approved with conditions</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div>
+        <label>Re-review date</label>
+        <input type="date" name="re_review_date">
+      </div>
+    </div>
+    <label>Conditions / rationale</label>
+    <textarea name="conditions"
+              placeholder="Required unless fully approved: what must be done, by whom, by when - or why rejected."></textarea>
+    <p class="meta">Recorded as <strong>{{ user.display_name or user.upn }}</strong>.</p>
+    <p><button type="submit">Record decision</button></p>
+  </form>
+  {% else %}
+  <p class="meta">Decisions are recorded by reviewers.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -7,7 +7,7 @@ name is written into the evidence field of the related checklist items that
 are still unreviewed.
 
 The doc list (per-CSP URLs, item mappings, positions) is editable on the
-/settings page; edits are stored in Cosmos and take precedence. The bundled
+/settings page (admins); edits are stored in the settings table and take precedence. The bundled
 defaults live in reference_docs.json next to this module (path overridable
 via REFERENCE_DOCS_PATH).
 
@@ -26,23 +26,46 @@ changed page, run:  python -m app.enrichment.reference_docs  and paste the
 printed hashes into reference_docs.json.
 """
 import hashlib
+import ipaddress
 import json
 import re
+import socket
+from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy.orm import Session
 
 from app import config
-from app.db import cosmos
+from app.models import Setting
 
 with open(config.REFERENCE_DOCS_PATH, encoding="utf-8") as _f:
     DEFAULT_DOCS = json.load(_f)
 
+SETTING_KEY = "reference-docs"
 
-def get_docs() -> dict:
+
+def get_docs(db: Session) -> dict:
     """Effective doc list: the version edited on the settings page (stored
-    in Cosmos) if present, otherwise the bundled defaults."""
-    override = cosmos.get_settings("reference-docs")
-    return override["docs"] if override else DEFAULT_DOCS
+    in the settings table) if present, otherwise the bundled defaults."""
+    override = db.get(Setting, SETTING_KEY)
+    return override.value["docs"] if override else DEFAULT_DOCS
+
+
+def check_public_url(url: str):
+    """Refuse URLs the server must not fetch on a user's behalf (SSRF): non-http(s)
+    schemes and hosts resolving to private, loopback, link-local (e.g. the cloud
+    metadata endpoint 169.254.169.254) or otherwise non-public addresses."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("URL must start with http:// or https://")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 443)
+    except socket.gaierror as err:
+        raise ValueError(f"can't resolve {parsed.hostname}: {err}") from err
+    for info in infos:
+        if not ipaddress.ip_address(info[4][0]).is_global:
+            raise ValueError(f"{parsed.hostname} is an internal address - the server won't "
+                             "fetch it; open it in your browser instead")
 
 CHANGED_NOTE = ("this source document has changed since its standard position was "
                 "validated - re-review the snapshot and re-validate the position "
@@ -50,8 +73,15 @@ CHANGED_NOTE = ("this source document has changed since its standard position wa
 
 
 def fetch(url: str) -> bytes:
-    resp = httpx.get(url, follow_redirects=True, timeout=30,
-                     headers={"User-Agent": "Mozilla/5.0 (AI-Governance-Review)"})
+    check_public_url(url)
+    with httpx.Client(timeout=30, headers={"User-Agent": "Mozilla/5.0 (AI-Governance-Review)"}) as client:
+        resp = client.get(url)
+        for _ in range(5):  # follow redirects by hand so each hop is checked
+            if not resp.is_redirect:
+                break
+            url = str(resp.next_request.url)
+            check_public_url(url)
+            resp = client.get(url)
     resp.raise_for_status()
     return resp.content
 
@@ -69,6 +99,7 @@ def text_hash(content: bytes) -> str:
 def fetch_pdf(url: str) -> bytes:
     """Print the rendered page to PDF with headless Chromium."""
     from playwright.sync_api import sync_playwright
+    check_public_url(url)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
@@ -86,7 +117,8 @@ def fetch_pdf(url: str) -> bytes:
 if __name__ == "__main__":
     # Print current text hashes for pasting into validated_hash after a re-review.
     # Internal docs are skipped: they are linked, never snapshotted/validated.
-    for _csp, _docs in get_docs().items():
+    # Uses the bundled defaults (reference_docs.json), not settings-page edits.
+    for _csp, _docs in DEFAULT_DOCS.items():
         if _csp == "internal":
             continue
         for _d in _docs:

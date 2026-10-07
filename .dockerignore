@@ -6,3 +6,4 @@ __pycache__/
 docs/
 README.md
 docker-compose.yml
+tests/

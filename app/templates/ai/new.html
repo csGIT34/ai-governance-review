@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>New enablement review</h1>
+<h1>New AI model / feature enablement review</h1>
 <div class="card">
   <p class="meta">The model pickers load live from the CSP catalog — what you pick here is
   exactly what the enrichment on the review page will find. If the catalog can't be reached
   (no credentials configured), the pickers fall back to free-text fields.</p>
-  <form method="post" action="/reviews">
+  <form method="post" action="/assessments/ai">
     <div class="grid2">
       <div>
         <label>Cloud provider</label>

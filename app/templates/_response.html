@@ -1,0 +1,183 @@
+{# Shared response editor. The <form data-autosave> autosaves (static/app.js); everything
+   else (evidence, upload, sign-off, comments) is a normal form posted after a flush. #}
+
+{% macro evidence_list(r, return_to, editable) %}
+{% if r and r.evidence %}
+<ul class="evidence">
+  {% for l in r.evidence %}
+  <li>
+    {% if l.kind == "artifact" %}📎 <a href="/artifacts/{{ l.artifact_id }}">{{ l.title or l.artifact.filename }}</a>
+      {% if l.url %}<span class="meta">from <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></span>{% endif %}
+      {% if l.artifact %}<span class="meta" title="sha256 {{ l.artifact.sha256 }}">sha256 {{ l.artifact.sha256[:12] }}…</span>{% endif %}
+    {% else %}🔗 <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title or l.url }}</a>
+      {% if l.kind == "repo" %}
+        {% if l.pinned %}<span class="badge pass" title="Pinned to a commit SHA - will always show this version">pinned</span>
+        {% else %}<span class="badge fail" title="Points at a branch - content changes as the branch moves. Use a permalink.">not pinned</span>{% endif %}
+      {% endif %}
+    {% endif %}
+    <span class="meta">· {{ l.added_by }} {{ l.added_at | d }}</span>
+    {% if editable %}
+    <form method="post" action="/evidence/{{ l.id }}/remove" class="inline-form">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <button class="linklike" data-confirm="Remove this evidence link? It stays in the history.">remove</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endmacro %}
+
+{% macro textarea(r, name, label, placeholder="") %}
+<label>{{ label }}</label>
+<textarea name="{{ name }}" placeholder="{{ placeholder }}">{{ r[name] if r else "" }}</textarea>
+{% endmacro %}
+
+{% macro editor(a, item, node, r, user, return_to, status_choices, ratings={}, locked="") %}
+{% set editable = can(user, "preparer") and not locked %}
+<form class="resp" data-autosave="/assessments/{{ a.id }}/responses">
+  <input type="hidden" name="item_id" value="{{ item.id }}">
+  <input type="hidden" name="node_id" value="{{ node.id }}">
+  <input type="hidden" name="version" value="{{ r.version if r else 0 }}">
+  <fieldset {% if not editable %}disabled{% endif %}>
+  {% if a.kind == "checklist" %}
+    {% set cur = r.status if r else "unreviewed" %}
+    <div class="controls">
+      <select name="status" class="s-{{ cur }}" aria-label="Status">
+        {% for value, text in status_choices.items() %}
+        <option value="{{ value }}" {% if cur == value %}selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+      </select>
+      <textarea name="narrative" placeholder="Notes / findings" aria-label="Notes">{{ r.narrative if r else "" }}</textarea>
+    </div>
+  {% else %}
+    {% set cur = r.status if r else "applicable" %}
+    <div class="grid3">
+      <div>
+        <label>Applicability</label>
+        <select name="status">
+          {% for value, text in status_choices.items() %}
+          <option value="{{ value }}" {% if cur == value %}selected{% endif %}>{{ text }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Design effectiveness</label>
+        <select name="design_rating">
+          {% for value, text in ratings.items() %}{% if value != "not_tested" %}
+          <option value="{{ value }}" {% if r and r.design_rating == value %}selected{% endif %}>{{ text }}</option>
+          {% endif %}{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Operating effectiveness</label>
+        <select name="operating_rating">
+          {% for value, text in ratings.items() %}
+          <option value="{{ value }}" {% if r and r.operating_rating == value %}selected{% endif %}>{{ text }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    {{ textarea(r, "narrative", "How is this control performed here?",
+                "Who does what, how often, with which tooling. If N/A, say why.") }}
+    <div class="grid2">
+      <div>{{ textarea(r, "test_procedure", "Test performed", "Steps, population and sample, period covered.") }}</div>
+      <div>{{ textarea(r, "test_result", "Test result", "What you observed; reference the evidence below.") }}</div>
+    </div>
+    {{ textarea(r, "exceptions", "Exceptions / gaps", "Leave empty if none. Raise an issue for each real gap.") }}
+  {% endif %}
+  </fieldset>
+  <div class="row" style="margin-top:0.4rem">
+    <span class="save-state" aria-live="polite">{% if locked %}🔒 {{ locked }}{% endif %}</span>
+    {% if r %}
+      {% if a.kind == "controls" %}<span class="badge {{ r.review_state }}" data-review-state>{{ r.review_state }}</span>{% endif %}
+      <span class="meta">last saved by {{ r.updated_by }} · {{ r.updated_at | dt }}</span>
+    {% endif %}
+  </div>
+</form>
+
+{{ evidence_list(r, return_to, editable) }}
+
+{% if editable %}
+<div class="subforms noprint">
+  <form method="post" action="/assessments/{{ a.id }}/responses/evidence">
+    <input type="hidden" name="item_id" value="{{ item.id }}">
+    <input type="hidden" name="node_id" value="{{ node.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <label>Add evidence link</label>
+    <input type="url" name="url" required placeholder="Permalink to the evidence repo file (…/blob/<commit sha>/…)">
+    <div class="row" style="margin-top:0.3rem">
+      <input type="text" name="title" placeholder="Title (optional)" style="flex:1">
+      <button class="secondary">Add link</button>
+    </div>
+  </form>
+  <form method="post" action="/assessments/{{ a.id }}/artifacts" enctype="multipart/form-data">
+    <input type="hidden" name="item_id" value="{{ item.id }}">
+    <input type="hidden" name="node_id" value="{{ node.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <label>Attach a file as evidence</label>
+    <div class="row"><input type="file" name="file" required style="flex:1"><button class="secondary">Upload</button></div>
+  </form>
+</div>
+{% endif %}
+
+{% if a.kind == "controls" and r %}
+<div class="row noprint" style="margin-top:0.6rem">
+  {% if r.prepared_by %}<span class="meta">prepared by {{ r.prepared_by }} · {{ r.prepared_at | dt }}</span>{% endif %}
+  {% if r.reviewed_by %}<span class="meta">· reviewed by {{ r.reviewed_by }} · {{ r.reviewed_at | dt }}</span>{% endif %}
+</div>
+{% if not (a.status == "closed") %}
+<div class="subforms noprint">
+  {% if r.review_state in ("draft", "returned") and can(user, "preparer") %}
+  <form method="post" action="/assessments/{{ a.id }}/responses/transition">
+    <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}"><input type="hidden" name="action" value="prepare">
+    <label>Ready for review?</label>
+    <button class="ok">Mark prepared</button>
+  </form>
+  {% endif %}
+  {% if r.review_state == "prepared" and can(user, "reviewer") %}
+    {% if r.prepared_by != user.upn %}
+    <form method="post" action="/assessments/{{ a.id }}/responses/transition">
+      <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+      <label>Reviewer sign-off</label>
+      <textarea name="comment" placeholder="Comment (required to return)" style="min-height:44px"></textarea>
+      <div class="row" style="margin-top:0.3rem">
+        <button class="ok" name="action" value="review">Sign off</button>
+        <button class="danger" name="action" value="return">Return to preparer</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="meta">You prepared this - another reviewer must sign it off.</p>
+    {% endif %}
+  {% endif %}
+  {% if r.review_state == "reviewed" and can(user, "reviewer") %}
+  <form method="post" action="/assessments/{{ a.id }}/responses/transition">
+    <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}"><input type="hidden" name="action" value="reopen">
+    <label>Reopen for edits</label>
+    <textarea name="comment" required placeholder="Why it needs to change (required)" style="min-height:44px"></textarea>
+    <button class="secondary" style="margin-top:0.3rem">Reopen</button>
+  </form>
+  {% endif %}
+  {% if can(user, "preparer") %}
+  <form method="post" action="/assessments/{{ a.id }}/responses/comment">
+    <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ node.id }}">
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    <label>Comment</label>
+    <textarea name="body" required style="min-height:44px"></textarea>
+    <button class="secondary" style="margin-top:0.3rem">Add comment</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+{% if r %}
+<details class="history noprint" data-history="/responses/{{ r.id }}/history">
+  <summary>History & comments</summary>
+  <div class="history-body meta">Loading…</div>
+</details>
+{% endif %}
+{% endmacro %}

@@ -1,15 +1,21 @@
+# Local development: app + Postgres + Azurite (blob). Data persists in named volumes.
 services:
   app:
     build: .
     ports:
       - "8000:8000"
     environment:
-      COSMOS_ENDPOINT: http://cosmos:8081
+      DATABASE_URL: postgresql+psycopg://governance:governance@db:5432/governance
       BLOB_CONNECTION_STRING: >-
         DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
-      # --- Optional: CSP catalog enrichment (see README) ---
-      AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID:-}
+      # Dev login switcher (alice=admin, bob=reviewer, carol=preparer, victor=viewer).
+      # NEVER use dev mode outside your machine.
+      AUTH_MODE: dev
+      EVIDENCE_REPO_BASE: ${EVIDENCE_REPO_BASE:-}
+      # --- Optional: Azure scope sync + AI catalog enrichment (see README) ---
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_ROOT_MANAGEMENT_GROUP: ${AZURE_ROOT_MANAGEMENT_GROUP:-}
+      AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID:-}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
       AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
@@ -17,16 +23,25 @@ services:
     # volumes:
     #   - ${APPDATA}/gcloud/application_default_credentials.json:/gcp/adc.json:ro
     depends_on:
-      - cosmos
-      - azurite
+      db:
+        condition: service_healthy
+      azurite:
+        condition: service_started
 
-  cosmos:
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
-    ports:
-      - "8081:8081"   # data plane (http)
-      - "1234:1234"   # data explorer UI
+  db:
+    image: postgres:16-alpine
     environment:
-      PROTOCOL: http
+      POSTGRES_USER: governance
+      POSTGRES_PASSWORD: governance
+      POSTGRES_DB: governance
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "governance"]
+      interval: 2s
+      retries: 30
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite
@@ -37,4 +52,5 @@ services:
       - azurite-data:/data
 
 volumes:
+  pg-data:
   azurite-data:

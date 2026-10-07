@@ -1,9 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Settings</h1>
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<h1>AI review reference documents</h1>
 
-<h2>Reference documents</h2>
 <p class="meta">
   The CSP terms/privacy pages snapshotted into every review by the &ldquo;Fetch reference docs&rdquo;
   button, and the checklist items each one is linked to as evidence. Edit a URL here if a page
@@ -17,7 +15,7 @@
 </p>
 {% if customized %}
 <form method="post" action="/settings/reference-docs/reset" style="margin-bottom:1rem">
-  <button class="secondary" onclick="return confirm('Discard all edits and return to the bundled defaults?')">Reset to defaults</button>
+  <button class="secondary" data-confirm="Discard all edits and return to the bundled defaults?">Reset to defaults</button>
 </form>
 {% endif %}
 
@@ -59,7 +57,7 @@
     <div style="padding-top:1.6rem">
       <button class="secondary" name="delete_slug" value="{{ ref.slug }}"
               formaction="/settings/reference-docs/delete" formnovalidate
-              onclick="return confirm('Remove {{ ref.title }} from this list?')">Remove</button>
+              data-confirm="Remove {{ ref.title }} from this list?">Remove</button>
     </div>
   </div>
   {% endfor %}

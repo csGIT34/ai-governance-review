@@ -1,5 +1,5 @@
 from azure.core.exceptions import ResourceExistsError
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, ContentSettings
 
 from app import config
 
@@ -17,11 +17,12 @@ def _container_client():
     return _service.get_container_client(config.BLOB_CONTAINER)
 
 
-def upload_artifact(review_id: str, filename: str, data: bytes) -> str:
-    blob_path = f"{review_id}/{filename}"
-    _container_client().upload_blob(blob_path, data, overwrite=True)
-    return blob_path
+def upload(blob_path: str, data: bytes, content_type: str):
+    """Write a new blob. overwrite=False: evidence is never replaced in place."""
+    _container_client().upload_blob(
+        blob_path, data, overwrite=False,
+        content_settings=ContentSettings(content_type=content_type))
 
 
-def download_artifact(blob_path: str) -> bytes:
+def download(blob_path: str) -> bytes:
     return _container_client().download_blob(blob_path).readall()

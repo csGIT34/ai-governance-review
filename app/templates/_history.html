@@ -1,0 +1,23 @@
+{% if comments %}
+<strong>Comments</strong>
+<ul class="history-list">
+  {% for c in comments %}
+  <li><strong>{{ c.author }}</strong> · {{ c.created_at | dt }}{% if c.kind != "comment" %} · <span class="badge {{ 'returned' if c.kind == 'return' else 'draft' }}">{{ c.kind }}</span>{% endif %}
+    <div class="prewrap">{{ c.body }}</div></li>
+  {% endfor %}
+</ul>
+{% endif %}
+<strong>Changes</strong>
+<ul class="history-list">
+  {% for e in events %}
+  <li><strong>{{ e.actor }}</strong> · {{ e.at | dt }} · {{ e.action }}{% if e.entity_type == "evidence_links" %} evidence{% endif %}{% if e.note %} — <em>{{ e.note }}</em>{% endif %}
+    {% for field, change in e.changes.items() %}
+      {% if field not in ("assessment_id", "assessment_item_id", "scope_node_id", "response_id", "updated_by", "added_by") %}
+      <div class="change">{{ field }}: {% if change[0] not in (None, "") %}<s>{{ change[0] | string | truncate(160) }}</s> → {% endif %}{{ change[1] | string | truncate(300) if change[1] is not none else "∅" }}</div>
+      {% endif %}
+    {% endfor %}
+  </li>
+  {% else %}
+  <li>No changes recorded.</li>
+  {% endfor %}
+</ul>

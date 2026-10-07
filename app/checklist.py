@@ -1,7 +1,9 @@
-"""The review framework: versioned checklist template.
+"""Seed data for the built-in AI-model enablement checklist library.
 
-A copy of ITEMS is embedded into every review at creation time so that
-editing this template never rewrites historical review records.
+app.seed loads ITEMS into the 'ai-enablement' library once, on first start.
+After that the library lives in the database (editable under Libraries) and
+every assessment snapshots its items at creation, so editing either the library
+or this file never rewrites historical reviews.
 
 Severity:
   blocker     - must be Pass or N/A before an unconditional Approve
@@ -321,7 +323,7 @@ for _item in ITEMS:
 
 
 def new_checklist():
-    """Fresh response set embedded into a review at creation time."""
+    """Blank {ref: response} view in the shape the auto-fill rules work on."""
     return {
         item["id"]: {"status": "unreviewed", "notes": "", "evidence": ""}
         for item in ITEMS
