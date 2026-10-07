@@ -18,7 +18,7 @@
     </td>
     <td><span class="badge {{ a.status }}">{{ a.status | replace("_", " ") }}</span></td>
     <td>
-      <span class="progressbar"><div style="width: {{ (100 * p.done / p.total) | round }}%"></div></span>
+      <span class="progressbar"><span style="width: {{ (100 * p.done / p.total) | round }}%"></span></span>
       <span class="meta">{{ p.done }}/{{ p.total }}</span>
     </td>
     <td class="meta">{{ a.created_at | d }}<br>{{ a.created_by }}</td>

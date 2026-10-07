@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ a.name }}{% endblock %}
+{% block content %}
+<h1>{{ a.name }} <span class="badge {{ a.status }}">{{ a.status }}</span></h1>
+<div class="card">
+  <div class="grid2">
+    <div class="meta">
+      Period <strong>{{ a.period_start | d or "—" }} → {{ a.period_end | d or "—" }}</strong>
+      · scope <strong>{{ a.context.scope_root }}</strong> ({{ leaves }} subscription{{ "s" if leaves != 1 }})<br>
+      Controls: {{ a.library_snapshot.name }}{% if a.library_snapshot.source_version %} v{{ a.library_snapshot.source_version }}{% endif %}
+      {% if a.library_snapshot.source_url %}(<a href="{{ a.library_snapshot.source_url }}" target="_blank" rel="noopener">source doc</a>){% endif %}
+      · {{ all_rows | length }} controls<br>
+      Created {{ a.created_at | d }} by {{ a.created_by }}
+      {% if a.attestation %}<br><strong>Closed</strong> {{ a.attestation.closed_at | d }} by {{ a.attestation.closed_by }}{% endif %}
+    </div>
+    <div style="text-align:right">
+      <p><span class="progressbar"><span style="width: {{ (100 * progress.done / progress.total) | round }}%"></span></span>
+        <span class="meta">{{ progress.done }}/{{ progress.total }} control × subscription answers complete</span></p>
+      <p class="noprint">
+        <a href="/assessments/{{ a.id }}/issues">Issues{% if open_issues %} ({{ open_issues }} open){% endif %}</a> ·
+        <a href="/assessments/{{ a.id }}/export.xlsx">Excel export</a> ·
+        <a href="/assessments/{{ a.id }}/report">Report (print / PDF)</a> ·
+        <a href="/assessments/{{ a.id }}/activity">Activity log</a> ·
+        <a href="/assessments/{{ a.id }}/close">{{ "Attestation" if a.status == "closed" else "Close & attest" }}</a>
+      </p>
+    </div>
+  </div>
+  {% if a.attestation %}<p class="prewrap"><strong>Attestation:</strong> {{ a.attestation.statement }}</p>{% endif %}
+</div>
+
+<p class="meta">Answer each control at the level where it's implemented: a management group answer covers every
+  subscription under it until a subscription overrides it. Answers save as you type.</p>
+
+<form method="get" class="row noprint" style="margin-bottom:0.8rem">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search ref, title, framework, owner" style="max-width:20rem">
+  <select name="category" style="max-width:14rem">
+    <option value="">All categories</option>
+    {% for c in categories %}<option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <select name="show" style="max-width:14rem">
+    {% for v, t in [("", "All controls"), ("open", "Still to answer"), ("to_review", "Waiting for review"), ("gaps", "Gaps (partial / ineffective)")] %}
+    <option value="{{ v }}" {% if v == show %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select>
+  <button class="secondary">Filter</button>
+  {% if q or category or show %}<a href="/assessments/{{ a.id }}">clear</a>{% endif %}
+</form>
+
+<table>
+  <tr><th>Control</th><th>Frameworks</th><th>Across {{ leaves }} subscription{{ "s" if leaves != 1 }}</th><th>Sign-off</th></tr>
+  {% for row in rows %}{% set i = row.item %}
+  <tr>
+    <td><a href="/assessments/{{ a.id }}/items/{{ i.id }}"><strong>{{ i.ref }}</strong> {{ i.title }}</a>
+      <div class="meta">{{ i.category }}{% if i.owner %} · {{ i.owner }}{% endif %}{% if i.frequency %} · {{ i.frequency }}{% endif %}</div></td>
+    <td class="meta">{{ i.framework_refs }}</td>
+    <td>{% for o in ["effective", "partially_effective", "ineffective", "not_tested", "na", "in_progress", "unanswered"] %}
+        {% if row.outcomes.get(o) %}<span class="badge {{ o }}">{{ outcome_labels[o] }} {{ row.outcomes[o] }}</span> {% endif %}
+      {% endfor %}</td>
+    <td class="meta">{{ row.answered_at }} answer{{ "s" if row.answered_at != 1 }}
+      {% if row.states.get("prepared") %}<br><span class="badge prepared">{{ row.states.prepared }} to review</span>{% endif %}
+      {% if row.states.get("returned") %}<br><span class="badge returned">{{ row.states.returned }} returned</span>{% endif %}
+      {% if row.states.get("reviewed") %}<br><span class="badge reviewed">{{ row.states.reviewed }} reviewed</span>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="meta">No controls match.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "_response.html" import editor, evidence_list %}
+{% block title %}{{ item.ref }} · {{ a.name }}{% endblock %}
+{% block content %}
+<p class="meta"><a href="/assessments/{{ a.id }}">← {{ a.name }}</a>
+  {% if prev %} · <a href="/assessments/{{ a.id }}/items/{{ prev.id }}">‹ {{ prev.ref }}</a>{% endif %}
+  {% if next %} · <a href="/assessments/{{ a.id }}/items/{{ next.id }}">{{ next.ref }} ›</a>{% endif %}</p>
+<h1>{{ item.ref }} — {{ item.title }}</h1>
+<div class="card">
+  {% if item.description %}<p class="prewrap" style="margin-top:0">{{ item.description }}</p>{% endif %}
+  <p class="meta">{% if item.category %}{{ item.category }}{% endif %}{% if item.owner %} · owner {{ item.owner }}{% endif %}
+    {% if item.frequency %} · {{ item.frequency }}{% endif %}{% if item.framework_refs %} · {{ item.framework_refs }}{% endif %}</p>
+  {% if item.guidance %}<p class="csp-note prewrap">📍 <strong>Evidence expected:</strong> {{ item.guidance }}</p>{% endif %}
+</div>
+
+<div class="layout">
+  <div class="card">
+    <strong>Scope</strong>
+    <p class="meta" style="margin:0.2rem 0 0.5rem">Bold = answered at that level; <em>italic</em> = inherited.</p>
+    <ul class="tree">
+      {% for x in nodes %}
+      <li><a href="?node={{ x.node.id }}" class="{{ 'current' if x.node.id == current.id }}" style="padding-left:{{ 0.4 + x.depth * 1.1 }}rem">
+        <span class="{{ 'own' if x.r and not x.inherited_from else 'inh' }}">{{ "📁" if x.node.kind != "subscription" else "🔑" }} {{ x.node.name }}</span>
+        <span>{% if x.outcome not in ("unanswered",) %}<span class="badge {{ x.outcome }}">{{ outcome_labels.get(x.outcome, x.outcome) }}</span>{% endif %}
+          {% if x.r and not x.inherited_from and x.r.review_state != "draft" %}<span class="badge {{ x.r.review_state }}">{{ x.r.review_state }}</span>{% endif %}</span>
+      </a></li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div>
+    <div class="card" id="item-{{ item.ref }}">
+      <h2 style="margin-top:0">{{ path }} <span class="kind-tag">{{ current.kind | replace("_", " ") }}</span></h2>
+      {% if r %}
+        {{ editor(a, item, current, r, user, return_to, status_choices, ratings, locked) }}
+        {% if current.parent_id and r.review_state in ("draft", "returned") and not locked and can(user, "preparer") %}
+        <form method="post" action="/assessments/{{ a.id }}/items/{{ item.id }}/inherit" class="noprint" style="margin-top:0.6rem">
+          <input type="hidden" name="node_id" value="{{ current.id }}">
+          <button class="linklike" data-confirm="Remove this level's own answer so it inherits from above again?">Remove this override (inherit again)</button>
+        </form>
+        {% endif %}
+      {% elif inherited_from %}
+        <div class="inherited">
+          <p style="margin-top:0">Inherited from <a href="?node={{ inherited_from.id }}"><strong>{{ inherited_from.name }}</strong></a>
+            <span class="badge {{ r_eff.review_state }}">{{ r_eff.review_state }}</span></p>
+          <p class="meta">{{ "Not applicable" if r_eff.status == "na" else "Applicable" }}
+            · design: {{ ratings[r_eff.design_rating] }} · operating: {{ ratings[r_eff.operating_rating] }}</p>
+          {% if r_eff.narrative %}<p class="prewrap">{{ r_eff.narrative }}</p>{% endif %}
+          {% if r_eff.test_result %}<p class="prewrap meta"><strong>Test result:</strong> {{ r_eff.test_result }}</p>{% endif %}
+          {% if r_eff.exceptions %}<p class="prewrap meta"><strong>Exceptions:</strong> {{ r_eff.exceptions }}</p>{% endif %}
+          {{ evidence_list(r_eff, return_to, False) }}
+        </div>
+        {% if can(user, "preparer") and not locked %}
+        <div class="row noprint" style="margin-top:0.7rem">
+          <form method="post" action="/assessments/{{ a.id }}/items/{{ item.id }}/override" class="inline-form">
+            <input type="hidden" name="node_id" value="{{ current.id }}"><input type="hidden" name="mode" value="copy">
+            <button class="secondary">Answer differently here (start from this text)</button>
+          </form>
+          <form method="post" action="/assessments/{{ a.id }}/items/{{ item.id }}/override" class="inline-form">
+            <input type="hidden" name="node_id" value="{{ current.id }}"><input type="hidden" name="mode" value="na">
+            <button class="secondary">Not applicable here</button>
+          </form>
+        </div>
+        {% endif %}
+      {% else %}
+        <p class="meta" style="margin-top:0">No answer at this level or above yet.
+          {% if current.kind != "subscription" %}An answer here covers everything below it.{% else %}Tip: if this control
+          is implemented centrally, answer it at the management group instead.{% endif %}</p>
+        {{ editor(a, item, current, None, user, return_to, status_choices, ratings, locked) }}
+      {% endif %}
+
+      {% if overrides_below %}
+      <p class="meta" style="margin-top:1rem">Answered differently below this level:
+        {% for x in overrides_below %}<a href="?node={{ x.node.id }}">{{ x.node.name }}</a>
+          (<span class="badge {{ x.outcome }}">{{ outcome_labels.get(x.outcome, x.outcome) }}</span>){% if not loop.last %}, {% endif %}{% endfor %}</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Issues for {{ item.ref }}</h3>
+      {% if issues %}
+      <ul class="evidence">
+        {% for iss in issues %}
+        <li><a href="/issues/{{ iss.id }}">{{ iss.ref }}</a> {{ iss.title }} <span class="badge {{ iss.severity }}">{{ iss.severity }}</span>
+          <span class="badge {{ iss.status }}">{{ iss.status | replace("_", " ") }}</span>
+          <span class="meta">{{ iss.node.name if iss.node else "" }}{% if iss.due_date %} · due {{ iss.due_date | d }}{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="meta">None.</p>{% endif %}
+      {% if can(user, "preparer") and a.status != "closed" %}
+      <details class="noprint"><summary class="meta" style="cursor:pointer">Raise an issue (gap / exception) at {{ current.name }}</summary>
+        <form method="post" action="/assessments/{{ a.id }}/issues">
+          <input type="hidden" name="item_id" value="{{ item.id }}"><input type="hidden" name="node_id" value="{{ current.id }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <label>Title</label><input type="text" name="title" required>
+          <label>Description</label><textarea name="description">{{ r_eff.exceptions if r_eff else "" }}</textarea>
+          <div class="grid3">
+            <div><label>Severity</label><select name="severity">{% for s in ["low", "medium", "high", "critical"] %}<option {% if s == "medium" %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+            <div><label>Owner</label><input type="text" name="owner" placeholder="name or email"></div>
+            <div><label>Due date</label><input type="date" name="due_date"></div>
+          </div>
+          <label>Remediation plan</label><textarea name="remediation_plan"></textarea>
+          <p><button>Raise issue</button></p>
+        </form>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

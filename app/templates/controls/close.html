@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="meta"><a href="/assessments/{{ a.id }}">← {{ a.name }}</a></p>
+<h1>{{ "Attestation" if a.status == "closed" else "Close & attest" }} — {{ a.name }}</h1>
+{% if a.status == "closed" %}
+<div class="card">
+  <p>Closed {{ a.attestation.closed_at | dt }} by <strong>{{ a.attestation.closed_by_name or a.attestation.closed_by }}</strong>
+    {% if a.attestation.open_issues_at_close %}· {{ a.attestation.open_issues_at_close }} issue(s) were open at close{% endif %}</p>
+  <p class="prewrap">{{ a.attestation.statement }}</p>
+  <p class="meta">All answers are locked.</p>
+</div>
+{% if can(user, "admin") %}
+<form method="post" action="/assessments/{{ a.id }}/reopen" class="card">
+  <label>Reopen (admin) - reason</label>
+  <textarea name="reason" required placeholder="Why it has to change after attestation"></textarea>
+  <p><button class="danger" data-confirm="Reopen this attested assessment? The attestation stays in the activity log.">Reopen</button></p>
+</form>
+{% endif %}
+{% else %}
+<div class="card">
+  <h3 style="margin-top:0">Readiness</h3>
+  {% if not blockers.incomplete and not blockers.unreviewed %}
+    <p><span class="badge approved">Ready</span> Every control has a complete answer for every subscription, and every answer is signed off.</p>
+  {% else %}
+    {% if blockers.incomplete %}
+    <p><span class="badge fail">{{ blockers.incomplete | length }}</span> control × subscription answer(s) missing or incomplete:</p>
+    <ul class="evidence">{% for item, leaf in blockers.incomplete[:25] %}
+      <li><a href="/assessments/{{ a.id }}/items/{{ item.id }}?node={{ leaf.id }}">{{ item.ref }}</a> at {{ tree.path(leaf.id) }}</li>{% endfor %}
+      {% if blockers.incomplete | length > 25 %}<li class="meta">… and {{ blockers.incomplete | length - 25 }} more</li>{% endif %}</ul>
+    {% endif %}
+    {% if blockers.unreviewed %}
+    <p><span class="badge fail">{{ blockers.unreviewed | length }}</span> answer(s) not signed off by a reviewer:</p>
+    <ul class="evidence">{% for r in blockers.unreviewed[:25] %}
+      <li><a href="/assessments/{{ a.id }}/items/{{ r.assessment_item_id }}?node={{ r.scope_node_id }}">{{ r.item.ref }}</a>
+        at {{ tree.path(r.scope_node_id) }} <span class="badge {{ r.review_state }}">{{ r.review_state }}</span></li>{% endfor %}
+      {% if blockers.unreviewed | length > 25 %}<li class="meta">… and {{ blockers.unreviewed | length - 25 }} more</li>{% endif %}</ul>
+    {% endif %}
+  {% endif %}
+  {% if open_issues %}<p class="meta">{{ open_issues | length }} issue(s) still open - they don't block closing and stay
+    tracked after it: {% for i in open_issues[:10] %}<a href="/issues/{{ i.id }}">{{ i.ref }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+</div>
+{% if can(user, "reviewer") %}
+<form method="post" action="/assessments/{{ a.id }}/close" class="card">
+  <label>Attestation statement</label>
+  <textarea name="statement" required style="min-height:110px">{{ default_statement }}</textarea>
+  <label style="font-weight:normal"><input type="checkbox" name="confirm"> I confirm the statement above. Closing locks every answer.</label>
+  <p><button {% if blockers.incomplete or blockers.unreviewed %}disabled{% endif %}>Close & attest as {{ user.display_name or user.upn }}</button></p>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

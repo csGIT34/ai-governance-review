@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="meta"><a href="/libraries">← Libraries</a></p>
+<h1>{{ lib.name }} <span class="badge {{ lib.kind }}">{{ "AI review checklist" if lib.kind == "checklist" else "controls" }}</span></h1>
+<div class="card">
+  <p class="meta">
+    {% if lib.source_url %}System of record: <a href="{{ lib.source_url }}" target="_blank" rel="noopener">{{ lib.source_url }}</a>{% endif %}
+    {% if lib.source_version %} · copied from version <strong>{{ lib.source_version }}</strong>{% endif %}
+    · updated {{ lib.updated_at | dt }}
+  </p>
+  {% if lib.description %}<p class="prewrap">{{ lib.description }}</p>{% endif %}
+  {% if used_by %}<p class="meta">Used by {{ used_by | length }} assessment(s) - they keep the copy they were created with:
+    {% for x in used_by[:5] %}<a href="/assessments/{{ x.id }}">{{ x.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% if used_by | length > 5 %}, …{% endif %}</p>{% endif %}
+  {% if can(user, "admin") %}
+  <details><summary class="meta" style="cursor:pointer">Edit library details</summary>
+    <form method="post" action="/libraries/{{ lib.id }}">
+      <div class="grid2">
+        <div><label>Name</label><input type="text" name="name" value="{{ lib.name }}" required></div>
+        <div><label>Source document version</label><input type="text" name="source_version" value="{{ lib.source_version }}"></div>
+      </div>
+      <label>Link to the control document</label><input type="url" name="source_url" value="{{ lib.source_url }}">
+      <label>Description</label><textarea name="description">{{ lib.description }}</textarea>
+      <p><button>Save</button></p>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
+<h2>Items ({{ items | length }})
+  <span class="meta" style="font-weight:normal">
+    {% if show == "all" %}<a href="?show=active">hide retired</a>{% else %}<a href="?show=all">show retired</a>{% endif %}
+  </span></h2>
+<table>
+  <tr><th>Ref</th><th>Title</th><th>Category</th><th>Frameworks</th><th>Owner / frequency</th>{% if can(user, "admin") %}<th></th>{% endif %}</tr>
+  {% for i in items %}
+  <tr {% if not i.active %}style="opacity:.55"{% endif %}>
+    <td><strong>{{ i.ref }}</strong>{% if i.severity %}<br><span class="badge {{ i.severity }}">{{ i.severity }}</span>{% endif %}</td>
+    <td>{{ i.title }}{% if not i.active %} <span class="badge">retired</span>{% endif %}<div class="meta">{{ i.description | truncate(220) }}</div></td>
+    <td class="meta">{{ i.category }}</td>
+    <td class="meta">{{ i.framework_refs }}</td>
+    <td class="meta">{{ i.owner }}{% if i.frequency %}<br>{{ i.frequency }}{% endif %}</td>
+    {% if can(user, "admin") %}<td><a href="/libraries/{{ lib.id }}/items/{{ i.id }}">edit</a></td>{% endif %}
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="meta">No items yet.</td></tr>
+  {% endfor %}
+</table>
+
+{% if can(user, "admin") %}
+<div class="grid2" style="margin-top:1rem">
+  <div class="card">
+    <h3 style="margin-top:0">Import / update from a spreadsheet</h3>
+    <p class="meta">Copy the table from Excel (with its header row) and paste it here, or upload a CSV.
+      Columns: <code>{{ columns | join(", ") }}</code> (common names like "Control ID" or
+      "Control name" work too). Rows are matched by <strong>ref</strong>: new refs are added, existing
+      ones updated. Nothing is deleted.</p>
+    <form method="post" action="/libraries/{{ lib.id }}/import" enctype="multipart/form-data">
+      <textarea name="text" placeholder="ref&#9;title&#9;description&#9;category&#9;..." style="min-height:120px;font-family:monospace;font-size:0.8rem"></textarea>
+      <label>…or a CSV file</label><input type="file" name="file" accept=".csv,.tsv,.txt">
+      <p><button>Import</button></p>
+    </form>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Add one item</h3>
+    <form method="post" action="/libraries/{{ lib.id }}/items">
+      <div class="grid2">
+        <div><label>Ref</label><input type="text" name="ref" required placeholder="CLD-IAM-01"></div>
+        <div><label>Category</label><input type="text" name="category"></div>
+      </div>
+      <label>Title</label><input type="text" name="title" required>
+      <label>Control description</label><textarea name="description"></textarea>
+      <div class="grid2">
+        <div><label>Owner</label><input type="text" name="owner"></div>
+        <div><label>Frequency</label><input type="text" name="frequency" placeholder="Continuous / Quarterly / …"></div>
+      </div>
+      <label>Framework refs</label><input type="text" name="framework_refs" placeholder="NIST 800-53 AC-2; CIS Azure 1.1; SOC2 CC6.1">
+      <label>Evidence expected / how to test</label><textarea name="guidance"></textarea>
+      <p><button>Add</button></p>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New control assessment</h1>
+{% if not libraries %}
+<div class="card">No controls library yet. {% if can(user, "admin") %}<a href="/libraries">Create one</a> and add or import your controls.{% else %}Ask an admin to create one.{% endif %}</div>
+{% elif not roots %}
+<div class="card">No scope yet. {% if can(user, "admin") %}<a href="/scope">Sync or add</a> your tenant / management groups.{% else %}Ask an admin to set up the scope.{% endif %}</div>
+{% else %}
+<form method="post" action="/assessments/controls" class="card">
+  <label>Name</label>
+  <input type="text" name="name" required placeholder="e.g. Q4 2026 Azure cloud controls RCSA">
+  <div class="grid2">
+    <div>
+      <label>Controls library</label>
+      <select name="library_id" required>
+        {% for lib in libraries %}<option value="{{ lib.id }}">{{ lib.name }}{% if lib.source_version %} ({{ lib.source_version }}){% endif %}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Scope (everything active under this node)</label>
+      <select name="root_id" required>
+        {% for n, depth in roots %}<option value="{{ n.id }}">{{ "  " * depth }}{{ n.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label>Period start</label><input type="date" name="period_start"></div>
+    <div><label>Period end</label><input type="date" name="period_end"></div>
+  </div>
+  <p class="meta">The controls and the scope tree are copied into the assessment now, so later edits to
+    the library or new subscriptions don't change it.</p>
+  <p><button>Create assessment</button></p>
+</form>
+{% endif %}
+{% endblock %}

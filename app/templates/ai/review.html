@@ -21,7 +21,7 @@
     </div>
     <div style="text-align:right">
       <p>
-        <span class="progressbar"><div style="width: {{ (100 * progress.done / progress.total) | round }}%"></div></span>
+        <span class="progressbar"><span style="width: {{ (100 * progress.done / progress.total) | round }}%"></span></span>
         <span class="meta">{{ progress.done }}/{{ progress.total }} items reviewed</span>
       </p>
       {% if blocker_gaps %}

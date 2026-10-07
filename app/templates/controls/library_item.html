@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="meta"><a href="/libraries/{{ lib.id }}">← {{ lib.name }}</a></p>
+<h1>Edit {{ item.ref }}</h1>
+<p class="meta">Changes apply to new assessments only; existing assessments keep their frozen copy.</p>
+<form method="post" action="/libraries/{{ lib.id }}/items/{{ item.id }}" class="card">
+  <div class="grid3">
+    <div><label>Ref</label><input type="text" name="ref" value="{{ item.ref }}" required></div>
+    <div><label>Category</label><input type="text" name="category" value="{{ item.category }}"></div>
+    <div><label>Severity {% if lib.kind == "controls" %}<span class="meta">(optional)</span>{% endif %}</label>
+      <select name="severity">
+        {% for s in ["", "blocker", "required", "recommended"] %}<option value="{{ s }}" {% if item.severity == s %}selected{% endif %}>{{ s or "—" }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <label>Title</label><input type="text" name="title" value="{{ item.title }}" required>
+  <label>Description</label><textarea name="description">{{ item.description }}</textarea>
+  <div class="grid2">
+    <div><label>Owner</label><input type="text" name="owner" value="{{ item.owner }}"></div>
+    <div><label>Frequency</label><input type="text" name="frequency" value="{{ item.frequency }}"></div>
+  </div>
+  <label>Framework refs</label><input type="text" name="framework_refs" value="{{ item.framework_refs }}">
+  <label>{{ "Where to find the answer" if lib.kind == "checklist" else "Evidence expected / how to test" }}</label>
+  <textarea name="guidance">{{ item.guidance }}</textarea>
+  <label style="font-weight:normal"><input type="checkbox" name="active" {% if item.active %}checked{% endif %}> active (untick to retire - kept for history)</label>
+  <p><button>Save</button></p>
+</form>
+{% endblock %}

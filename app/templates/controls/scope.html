@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Scope</h1>
+<p class="meta">The Azure hierarchy assessments run over: tenant → management groups → subscriptions.
+  Sync pulls it from Azure (the app's identity needs Management Group Reader on
+  {% if config.AZURE_ROOT_MANAGEMENT_GROUP %}<code>{{ config.AZURE_ROOT_MANAGEMENT_GROUP }}</code>{% else %}the root management group - set <code>AZURE_TENANT_ID</code>{% endif %});
+  you can also add nodes by hand. Nodes are never deleted - deactivated ones are skipped by new assessments.
+  Each assessment keeps a frozen copy of the tree it was created with.</p>
+{% if can(user, "admin") %}
+<form method="post" action="/scope/sync" class="noprint" style="margin-bottom:1rem">
+  <button class="secondary">Sync from Azure</button>
+</form>
+{% endif %}
+{% if tree %}
+<table>
+  <tr><th>Node</th><th>Type</th><th>Azure id</th><th>Source</th>{% if can(user, "admin") %}<th>Edit</th>{% endif %}</tr>
+  {% for n, depth in tree %}
+  <tr {% if not n.active %}style="opacity:.5"{% endif %}>
+    <td style="padding-left:{{ 0.75 + depth * 1.4 }}rem">{{ "📁" if n.kind != "subscription" else "🔑" }} {{ n.name }}{% if not n.active %} <span class="badge">inactive</span>{% endif %}</td>
+    <td class="meta">{{ kinds[n.kind] }}</td>
+    <td class="meta"><code>{{ n.azure_id or "" }}</code></td>
+    <td class="meta">{{ n.source }}{% if n.last_synced_at %}<br>{{ n.last_synced_at | dt }}{% endif %}</td>
+    {% if can(user, "admin") %}
+    <td>
+      <form method="post" action="/scope/nodes/{{ n.id }}" class="row">
+        <input type="text" name="name" value="{{ n.name }}" style="width:12rem">
+        <select name="parent_id" style="width:11rem" title="Parent">
+          <option value="">(top level)</option>
+          {% for p, _ in tree %}{% if p.kind != "subscription" and p.id != n.id %}
+          <option value="{{ p.id }}" {% if p.id == n.parent_id %}selected{% endif %}>{{ p.name }}</option>
+          {% endif %}{% endfor %}
+        </select>
+        <label style="margin:0;font-weight:normal"><input type="checkbox" name="active" {% if n.active %}checked{% endif %}> active</label>
+        <button class="secondary">Save</button>
+      </form>
+    </td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card meta">No scope yet. Sync from Azure or add a tenant node below.</div>
+{% endif %}
+{% if can(user, "admin") %}
+<details class="card" style="margin-top:1rem">
+  <summary style="cursor:pointer"><strong>Add a node by hand</strong></summary>
+  <form method="post" action="/scope/nodes">
+    <div class="grid2">
+      <div><label>Type</label><select name="kind">{% for k, label in kinds.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></div>
+      <div><label>Name</label><input type="text" name="name" required></div>
+      <div><label>Azure id (subscription GUID / management group id) - optional</label><input type="text" name="azure_id"></div>
+      <div><label>Parent</label><select name="parent_id"><option value="">(top level)</option>
+        {% for p, _ in tree %}{% if p.kind != "subscription" %}<option value="{{ p.id }}">{{ p.name }}</option>{% endif %}{% endfor %}</select></div>
+    </div>
+    <p><button>Add</button></p>
+  </form>
+</details>
+{% endif %}
+{% endblock %}

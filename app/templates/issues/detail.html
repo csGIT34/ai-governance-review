@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ issue.ref }}{% endblock %}
+{% block content %}
+<p class="meta"><a href="/assessments/{{ a.id }}/issues">← issues in {{ a.name }}</a>
+  {% if issue.item %} · control <a href="/assessments/{{ a.id }}/items/{{ issue.assessment_item_id }}?node={{ issue.scope_node_id }}">{{ issue.item.ref }} {{ issue.item.title }}</a>{% endif %}
+  {% if issue.node %} at <strong>{{ issue.node.name }}</strong>{% endif %}</p>
+<h1>{{ issue.ref }} — {{ issue.title }} <span class="badge {{ issue.severity }}">{{ issue.severity }}</span>
+  <span class="badge {{ issue.status }}">{{ statuses[issue.status] }}</span></h1>
+<p class="meta">Raised by {{ issue.created_by }} · {{ issue.created_at | dt }}{% if issue.closed_at %} · closed {{ issue.closed_at | dt }}{% endif %}</p>
+
+<form method="post" action="/issues/{{ issue.id }}" class="card">
+  <input type="hidden" name="version" value="{{ issue.version }}">
+  <fieldset {% if not can(user, "preparer") %}disabled{% endif %} style="border:none;padding:0;margin:0">
+  <label>Title</label><input type="text" name="title" value="{{ issue.title }}" required>
+  <label>Description</label><textarea name="description">{{ issue.description }}</textarea>
+  <div class="grid3">
+    <div><label>Severity</label><select name="severity">{% for s in severities %}<option {% if issue.severity == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="status">{% for k, v in statuses.items() %}<option value="{{ k }}" {% if issue.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Due date</label><input type="date" name="due_date" value="{{ issue.due_date | d }}"></div>
+  </div>
+  <label>Owner</label><input type="text" name="owner" value="{{ issue.owner }}">
+  <label>Remediation plan</label><textarea name="remediation_plan">{{ issue.remediation_plan }}</textarea>
+  <label>Update note (required when closing or accepting the risk)</label>
+  <textarea name="note" placeholder="What changed and why" style="min-height:50px"></textarea>
+  <p><button>Save</button></p>
+  </fieldset>
+</form>
+
+<div class="card">
+  <h3 style="margin-top:0">Evidence</h3>
+  <ul class="evidence">
+    {% for l in issue.evidence %}
+    <li>🔗 <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title or l.url }}</a>
+      {% if l.kind == "repo" %}<span class="badge {{ 'pass' if l.pinned else 'fail' }}">{{ "pinned" if l.pinned else "not pinned" }}</span>{% endif %}
+      <span class="meta">· {{ l.added_by }} {{ l.added_at | d }}</span>
+      {% if can(user, "preparer") %}<form method="post" action="/evidence/{{ l.id }}/remove" class="inline-form">
+        <input type="hidden" name="return_to" value="/issues/{{ issue.id }}">
+        <button class="linklike" data-confirm="Remove this evidence link? It stays in the history.">remove</button></form>{% endif %}</li>
+    {% else %}<li class="meta">None yet - link the remediation evidence (PR, change ticket, repo permalink).</li>{% endfor %}
+  </ul>
+  {% if can(user, "preparer") %}
+  <form method="post" action="/issues/{{ issue.id }}/evidence" class="row" style="margin-top:0.5rem">
+    <input type="url" name="url" required placeholder="https://…" style="flex:2">
+    <input type="text" name="title" placeholder="Title" style="flex:1">
+    <button class="secondary">Add link</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">History</h3>
+  {% with events=events, comments=comments %}{% include "_history.html" %}{% endwith %}
+</div>
+{% endblock %}

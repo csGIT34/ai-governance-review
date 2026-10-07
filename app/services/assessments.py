@@ -167,3 +167,19 @@ def progress(db: Session, a: Assessment) -> dict:
     total = sum(r["leaves"] for r in rows)
     done = sum(n for r in rows for o, n in r["outcomes"].items() if o not in not_done)
     return {"done": done, "total": total or 1}
+
+
+def close_blockers(db: Session, a: Assessment) -> dict:
+    """What stops a control assessment from being closed: (item, subscription) pairs
+    without a complete effective answer, and answers not yet signed off."""
+    tree = Tree(a.scope_nodes)
+    by_item = responses_by_item(db, a.id)
+    incomplete, unreviewed = [], []
+    for item in a.items:
+        own = by_item.get(item.id, {})
+        for leaf in tree.leaves():
+            r, _ = effective(tree, own, leaf.id)
+            if outcome(a.kind, r) in ("unanswered", "in_progress"):
+                incomplete.append((item, leaf))
+        unreviewed += [r for r in own.values() if r.review_state != "reviewed"]
+    return {"incomplete": incomplete, "unreviewed": unreviewed}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Report · {{ a.name }}{% endblock %}
+{% block content %}
+<p class="meta noprint"><a href="/assessments/{{ a.id }}">← back</a> · use your browser's Print → Save as PDF</p>
+<h1>{{ a.name }}</h1>
+<p class="meta">Period {{ a.period_start | d or "—" }} → {{ a.period_end | d or "—" }} · scope {{ tree.root.name }}
+  ({{ tree.leaves() | length }} subscriptions) · controls: {{ a.library_snapshot.name }}
+  {% if a.library_snapshot.source_version %}v{{ a.library_snapshot.source_version }}{% endif %} · status {{ a.status }}
+  · generated {{ generated | dt }} by {{ user.upn }}</p>
+{% if a.attestation %}
+<div class="card"><strong>Attested</strong> {{ a.attestation.closed_at | dt }} by {{ a.attestation.closed_by_name or a.attestation.closed_by }}
+  <p class="prewrap">{{ a.attestation.statement }}</p></div>
+{% endif %}
+
+{% for s in sections %}{% set i = s.item %}
+<div class="card">
+  <h2 style="margin-top:0">{{ i.ref }} — {{ i.title }}</h2>
+  <p class="meta">{{ i.category }}{% if i.framework_refs %} · {{ i.framework_refs }}{% endif %}{% if i.owner %} · owner {{ i.owner }}{% endif %}</p>
+  <p>{% for o in ["effective", "partially_effective", "ineffective", "not_tested", "na", "in_progress", "unanswered"] %}
+    {% if s.outcomes.get(o) %}<span class="badge {{ o }}">{{ outcome_labels[o] }} {{ s.outcomes[o] }}</span> {% endif %}{% endfor %}</p>
+  {% for path, r in s.answers %}
+  <div style="border-top:1px solid var(--line); padding-top:0.5rem; margin-top:0.5rem">
+    <strong>{{ path }}</strong>
+    <span class="meta">— {{ "Not applicable" if r.status == "na" else "design: " ~ ratings[r.design_rating] ~ " · operating: " ~ ratings[r.operating_rating] }}
+      · {{ r.review_state }}{% if r.reviewed_by %} by {{ r.reviewed_by }}{% endif %}</span>
+    {% if r.narrative %}<p class="prewrap">{{ r.narrative }}</p>{% endif %}
+    {% if r.test_procedure %}<p class="prewrap meta"><strong>Test:</strong> {{ r.test_procedure }}</p>{% endif %}
+    {% if r.test_result %}<p class="prewrap meta"><strong>Result:</strong> {{ r.test_result }}</p>{% endif %}
+    {% if r.exceptions %}<p class="prewrap meta"><strong>Exceptions:</strong> {{ r.exceptions }}</p>{% endif %}
+    {% if r.evidence %}<ul class="evidence">{% for l in r.evidence %}<li>{{ l.title or (l.artifact.filename if l.artifact else "") }} {{ l.url }}{% if l.artifact %} (sha256 {{ l.artifact.sha256[:16] }}…){% endif %}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% else %}<p class="meta">No answers recorded.</p>{% endfor %}
+</div>
+{% endfor %}
+
+<h2>Issues</h2>
+<table>
+  <tr><th>Issue</th><th>Control / scope</th><th>Severity</th><th>Status</th><th>Owner / due</th></tr>
+  {% for iss in issues %}
+  <tr><td>{{ iss.ref }} {{ iss.title }}</td><td>{{ iss.item.ref if iss.item }} · {{ iss.node.name if iss.node }}</td>
+    <td>{{ iss.severity }}</td><td>{{ iss.status | replace("_", " ") }}</td><td>{{ iss.owner }} {{ iss.due_date | d }}</td></tr>
+  {% else %}<tr><td colspan="5" class="meta">None.</td></tr>{% endfor %}
+</table>
+{% endblock %}

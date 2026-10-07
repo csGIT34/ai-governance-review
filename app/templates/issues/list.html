@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+{% if a %}<p class="meta"><a href="/assessments/{{ a.id }}">← {{ a.name }}</a></p>{% endif %}
+<h1>Issues{% if a %} — {{ a.name }}{% endif %}</h1>
+<form method="get" class="row noprint" style="margin-bottom:0.8rem">
+  <select name="status" style="max-width:12rem">
+    <option value="open" {% if status == "open" %}selected{% endif %}>Not closed</option>
+    <option value="" {% if not status %}selected{% endif %}>All</option>
+    {% for k, v in statuses.items() %}<option value="{{ k }}" {% if status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+  </select>
+  <select name="severity" style="max-width:10rem">
+    <option value="">Any severity</option>
+    {% for s in severities %}<option {% if severity == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <button class="secondary">Filter</button>
+</form>
+<table>
+  <tr><th>Issue</th><th>Control / scope</th><th>Severity</th><th>Status</th><th>Owner</th><th>Due</th></tr>
+  {% for i in issues %}
+  <tr>
+    <td><a href="/issues/{{ i.id }}"><strong>{{ i.ref }}</strong> {{ i.title }}</a>
+      {% if not a %}<div class="meta">{{ names.get(i.assessment_id, "") }}</div>{% endif %}</td>
+    <td class="meta">{% if i.item %}<a href="/assessments/{{ i.assessment_id }}/items/{{ i.assessment_item_id }}?node={{ i.scope_node_id }}">{{ i.item.ref }}</a>{% endif %}
+      {% if i.node %}· {{ i.node.name }}{% endif %}</td>
+    <td><span class="badge {{ i.severity }}">{{ i.severity }}</span></td>
+    <td><span class="badge {{ i.status }}">{{ statuses[i.status] }}</span></td>
+    <td class="meta">{{ i.owner }}</td>
+    <td class="meta">{% if i.due_date %}{% if i.status != "closed" and i.due_date < today %}<span class="badge fail">overdue</span> {% endif %}{{ i.due_date | d }}{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="6" class="meta">No issues match. Raise issues from a control's page.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

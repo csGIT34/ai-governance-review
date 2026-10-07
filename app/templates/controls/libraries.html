@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Libraries</h1>
+<p class="meta">A library is the set of items an assessment answers against. <strong>Controls libraries</strong>
+  are a reference copy of your control document - that document stays the system of record. Each
+  assessment freezes a copy of the library when it's created.</p>
+<table>
+  <tr><th>Library</th><th>Type</th><th>Items</th><th>Source</th></tr>
+  {% for lib, count in rows %}
+  <tr>
+    <td><a href="/libraries/{{ lib.id }}">{{ lib.name }}</a><div class="meta">{{ lib.description }}</div></td>
+    <td><span class="badge {{ lib.kind }}">{{ "AI review checklist" if lib.kind == "checklist" else "controls" }}</span></td>
+    <td>{{ count }}</td>
+    <td class="meta">{% if lib.source_url %}<a href="{{ lib.source_url }}" target="_blank" rel="noopener">source doc</a>{% endif %}
+      {% if lib.source_version %} · version {{ lib.source_version }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% if can(user, "admin") %}
+<details class="card" style="margin-top:1rem">
+  <summary style="cursor:pointer"><strong>New controls library</strong></summary>
+  <form method="post" action="/libraries">
+    <div class="grid2">
+      <div><label>Name</label><input type="text" name="name" required placeholder="e.g. Cloud Control Standard"></div>
+      <div><label>Source document version</label><input type="text" name="source_version" placeholder="e.g. v3.2 (2026-09)"></div>
+    </div>
+    <label>Link to the control document (system of record)</label>
+    <input type="url" name="source_url" placeholder="https://...">
+    <label>Description</label>
+    <textarea name="description"></textarea>
+    <p><button>Create</button></p>
+  </form>
+</details>
+{% endif %}
+{% endblock %}
