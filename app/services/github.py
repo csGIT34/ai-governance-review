@@ -8,7 +8,7 @@ Without a token, or if the API can't be reached, the link is kept as typed and f
 """
 import re
 from dataclasses import dataclass
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -56,11 +56,15 @@ def pin(url: str) -> Pin:
         return Pin(url, None)
     origin, owner, repo, mode, rest, suffix = m.groups()
     segments = rest.strip("/").split("/")
+    # Refuse dot segments: httpx would collapse them and the token would reach other endpoints.
+    if any(unquote(seg) in ("", ".", "..") for seg in (owner, repo, *segments)):
+        return Pin(url, False, "That link has an invalid path.")
     try:
         # The ref may itself contain slashes (release/2026-q4): try the shortest first.
         for cut in range(1, min(len(segments), 5)):
             ref, path = "/".join(segments[:cut]), "/".join(segments[cut:])
-            status, body = _get(f"/repos/{owner}/{repo}/commits/{quote(ref, safe='/')}")
+            # The web URL is already percent-encoded: decode, then encode once for the API.
+            status, body = _get(f"/repos/{owner}/{repo}/commits/{quote(unquote(ref), safe='/')}")
             if status == 200 and body.get("sha"):
                 sha = body["sha"]
                 break
@@ -68,9 +72,9 @@ def pin(url: str) -> Pin:
                 return Pin(url, False, f"GitHub API returned {status}; link added without pinning.")
         else:
             return Pin(url, False, "Couldn't find that branch or commit in the repo - check the link.")
-        status, _ = _get(f"/repos/{owner}/{repo}/contents/{quote(path)}?ref={sha}")
+        status, _ = _get(f"/repos/{owner}/{repo}/contents/{quote(unquote(path))}?ref={sha}")
         if status != 200:
-            return Pin(url, False, f"{path} doesn't exist at commit {sha[:7]} - check the link.")
+            return Pin(url, False, f"{unquote(path)} doesn't exist at commit {sha[:7]} - check the link.")
     except httpx.HTTPError as err:
         return Pin(url, False, f"GitHub API unreachable ({err.__class__.__name__}); link added "
                                "without pinning.")

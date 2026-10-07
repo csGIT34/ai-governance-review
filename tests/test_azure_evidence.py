@@ -84,3 +84,18 @@ def test_query_column_imports(client, session, setup):
     client.post(f"/libraries/{setup['lid']}/import", data={
         "text": "ref\ttitle\tKQL\nIAM-01\tMFA for privileged access\tresources | take 1\n"})
     assert _with_query(session, setup).evidence_query == "resources | take 1"
+
+
+
+def test_truncation_detected_without_paging(monkeypatch):
+    """No `id` projected -> Resource Graph returns one page, no $skipToken, resultTruncated."""
+    class Resp:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"data": [{"x": 1}] * 1000, "totalRecords": 2500, "resultTruncated": "true"}
+    monkeypatch.setattr(scope, "_token", lambda: "tok")
+    monkeypatch.setattr(azure_evidence.httpx, "post", lambda *a, **k: Resp())
+    result = azure_evidence.run_query(["sub"], "resources")
+    assert len(result["rows"]) == 1000 and result["truncated"] is True

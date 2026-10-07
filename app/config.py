@@ -14,6 +14,9 @@ DATABASE_URL = os.environ.get(
 #           managed identity as its password. DATABASE_URL then has the identity's
 #           Postgres role name as the user and no password.
 DATABASE_AUTH = os.environ.get("DATABASE_AUTH", "password")
+# Migration job only: the app's (separate, least-privileged) Postgres role to grant to.
+# See app/grants.py.
+APP_DB_ROLE = os.environ.get("APP_DB_ROLE", "")
 
 # Blob storage (defaults target Azurite; override in Azure)
 BLOB_CONNECTION_STRING = os.environ.get(

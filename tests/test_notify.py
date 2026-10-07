@@ -20,7 +20,7 @@ def sent(monkeypatch):
 
 
 def _title(payload):
-    return payload["attachments"][0]["content"]["body"][0]["text"]
+    return payload["attachments"][0]["content"]["body"][0]["inlines"][0]["text"]
 
 
 def test_prepare_and_return_notify(client, session, setup, sent):
@@ -70,3 +70,42 @@ def test_due_issue_digest(client, session, setup, sent):
             "title": title, "severity": "low", "due_date": due})
     assert jobs.notify_due_issues(session, today=date(2026, 10, 6)) == 2
     assert _title(sent[0]) == "2 issue(s) due within 7 days (1 overdue)"
+
+
+
+def test_webhook_secret_never_logged(monkeypatch, caplog):
+    import httpx
+    import logging
+    secret_url = "https://prod.logic.azure.com/workflows/x/triggers/manual?sig=SECRET123"
+    monkeypatch.setattr(config, "TEAMS_WEBHOOK_URL", secret_url)
+
+    def fail(payload):
+        req = httpx.Request("POST", secret_url)
+        raise httpx.HTTPStatusError(f"Server error for url {secret_url}", request=req,
+                                    response=httpx.Response(500, request=req))
+    monkeypatch.setattr(notify, "_post", fail)
+    with caplog.at_level(logging.DEBUG):
+        notify.send("hello")
+    assert "SECRET123" not in caplog.text and "HTTP 500" in caplog.text
+    from app import main  # noqa: F401  (configures logging)
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+
+
+def test_user_text_is_not_markdown(sent):
+    notify.send("[click](https://evil.example)", "**bold** [x](https://evil.example)")
+    body = sent[0]["attachments"][0]["content"]["body"]
+    assert all(b["type"] == "RichTextBlock" for b in body)  # TextRuns render literally
+
+
+def test_due_digest_failure_fails_the_job(client, session, setup, monkeypatch):
+    monkeypatch.setattr(config, "TEAMS_WEBHOOK_URL", "https://teams.example/webhook")
+
+    def down(payload):
+        raise ConnectionError("down")
+    monkeypatch.setattr(notify, "_post", down)
+    aid = setup["aid"]
+    client.post(f"/assessments/{aid}/issues", data={
+        "item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid),
+        "title": "x", "severity": "low", "due_date": "2026-10-01"})
+    with pytest.raises(RuntimeError, match="Teams notification failed"):
+        jobs.notify_due_issues(session, today=date(2026, 10, 6))

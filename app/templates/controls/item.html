@@ -119,7 +119,7 @@
           <label>Description</label><textarea name="description">{{ r_eff.exceptions if r_eff else "" }}</textarea>
           <div class="grid3">
             <div><label>Severity</label><select name="severity">{% for s in ["low", "medium", "high", "critical"] %}<option {% if s == "medium" %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
-            <div><label>Owner</label><input type="text" name="owner" placeholder="name or email"></div>
+            <div><label>Owner</label><input type="text" name="owner" placeholder="sign-in email (shows in their My work)"></div>
             <div><label>Due date</label><input type="date" name="due_date"></div>
           </div>
           <label>Remediation plan</label><textarea name="remediation_plan"></textarea>

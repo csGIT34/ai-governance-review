@@ -18,7 +18,7 @@
     <div><label>Status</label><select name="status">{% for k, v in statuses.items() %}<option value="{{ k }}" {% if issue.status == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
     <div><label>Due date</label><input type="date" name="due_date" value="{{ issue.due_date | d }}"></div>
   </div>
-  <label>Owner</label><input type="text" name="owner" value="{{ issue.owner }}">
+  <label>Owner <span class="meta">(sign-in email, so it shows in their My work)</span></label><input type="text" name="owner" value="{{ issue.owner }}">
   <label>Remediation plan</label><textarea name="remediation_plan">{{ issue.remediation_plan }}</textarea>
   <label>Update note (required when closing or accepting the risk)</label>
   <textarea name="note" placeholder="What changed and why" style="min-height:50px"></textarea>

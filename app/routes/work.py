@@ -48,10 +48,8 @@ def my_work(request: Request, user: User = Depends(current_user), db: Session = 
         to_review = db.scalars(open_responses.where(Response.review_state == "prepared",
                                                     Response.prepared_by != me)
                                .order_by(Response.prepared_at).limit(200)).all()
-    issues = db.scalars(select(Issue).where(
-        Issue.status != "closed",
-        func.lower(Issue.owner).in_([me, (user.display_name or "").lower()]))
-        .order_by(Issue.due_date.is_(None), Issue.due_date)).all()
+    issues = db.scalars(select(Issue).where(Issue.status != "closed", func.lower(Issue.owner) == me)
+                        .order_by(Issue.due_date.is_(None), Issue.due_date)).all()
     names = {a.id: a.name for a in db.scalars(select(Assessment))}
     return render(request, "work/my.html", {
         "to_answer": to_answer, "returned": returned, "drafts": drafts, "to_review": to_review,
@@ -63,11 +61,16 @@ async def assign(aid: int, request: Request, user: User = Depends(require("revie
                  db: Session = Depends(get_session)):
     """Assign one control (item_id) or a whole category to a preparer ('' unassigns)."""
     a = load_assessment(db, aid)
+    if a.kind != "controls" or a.status == "closed":
+        return redirect(f"/assessments/{aid}", error="Assignments can't change on a closed assessment.")
     form = await request.form()
     assignee = str(form.get("assignee", "")).strip().lower()
-    if assignee and not db.scalar(select(User.id).where(User.upn == assignee, User.active)):
-        return redirect(f"/assessments/{aid}", error=f"{assignee} is not an active user.")
+    if assignee and not db.scalar(select(User.id).where(User.upn == assignee, User.active,
+                                                        User.role != "viewer")):
+        return redirect(f"/assessments/{aid}", error=f"{assignee} is not an active preparer or reviewer.")
     if form.get("item_id"):
+        if not str(form["item_id"]).isdigit():
+            raise HTTPException(404)
         items = [db.get(AssessmentItem, int(form["item_id"]))]
     else:
         category = str(form.get("category", ""))

@@ -1,7 +1,8 @@
 """Attach the result of an Azure Resource Graph query as evidence for an answer.
 
 A control in the library can carry `evidence_query` (KQL), e.g. the Defender plan tier of
-every subscription. Running it for a scope node queries the subscriptions under that node and
+every subscription. Project `id` in the query so Resource Graph can page through large
+results; otherwise only the first page comes back and the evidence is marked truncated. Running it for a scope node queries the subscriptions under that node and
 stores the full result as a JSON artifact (sha256, never overwritten), linked as evidence.
 The managed identity needs Reader on those subscriptions (or the management group).
 """
@@ -49,12 +50,16 @@ def run_query(subscriptions: list[str], kql: str) -> dict:
             body = resp.json()
             rows += body.get("data", [])
             total = body.get("totalRecords", len(rows))
+            # Resource Graph only pages (returns $skipToken) when the query projects `id`;
+            # otherwise it returns one page and flags resultTruncated.
+            flagged = str(body.get("resultTruncated", "")).lower() == "true"
             skip = body.get("$skipToken")
             if not skip or len(rows) >= MAX_ROWS:
                 break
     except httpx.HTTPError as err:
-        raise EvidenceError(f"Resource Graph request failed: {err}") from err
-    return {"rows": rows[:MAX_ROWS], "total_records": total, "truncated": total > MAX_ROWS}
+        raise EvidenceError(f"Resource Graph request failed: {err.__class__.__name__}") from err
+    rows = rows[:MAX_ROWS]
+    return {"rows": rows, "total_records": total, "truncated": flagged or len(rows) < total}
 
 
 def attach(db: Session, user: User, a: Assessment, item: AssessmentItem,
@@ -65,8 +70,9 @@ def attach(db: Session, user: User, a: Assessment, item: AssessmentItem,
     subs = subscriptions_under(tree, node)
     if not subs:
         raise EvidenceError(f"No subscriptions with an Azure id under {node.name}.")
-    resp = responses.for_edit(db, user, a, item, node)  # same lock / inheritance rules as edits
-    result = run_query(subs, item.evidence_query)
+    responses.precheck(db, user, a, item, node)  # fail fast, without holding the lock
+    result = run_query(subs, item.evidence_query)  # slow: up to minutes
+    resp = responses.for_edit(db, user, a, item, node)  # now lock and re-check
     now = datetime.now(timezone.utc)
     payload = {"control": item.ref, "scope": tree.path(node.id), "subscriptions": subs,
                "query": item.evidence_query, "run_at": now.isoformat(), "run_by": user.upn,

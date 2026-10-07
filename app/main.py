@@ -14,6 +14,10 @@ from app.routes import ai, common, controls, issues, work
 from app.web import render
 
 logging.basicConfig(level=logging.INFO)
+# HTTP client libraries log full request URLs at INFO, and some URLs carry secrets (the Teams
+# webhook's sig=...). Keep them at WARNING so secrets never reach Log Analytics.
+for _noisy in ("httpx", "httpcore", "azure", "urllib3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 @asynccontextmanager

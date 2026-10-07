@@ -449,14 +449,26 @@ def test_dev_login_does_not_redirect_offsite(client):
 
 # --- carry forward, assignment, my work, bulk review -------------------------------------
 
+def _close(client, aid):
+    as_user(client, REVIEWER)
+    resp = client.post(f"/assessments/{aid}/close", data={"statement": "Attested.", "confirm": "on"},
+                       follow_redirects=False)
+    assert "closed and attested" in unquote(resp.headers["location"])
+    as_user(client, ADMIN)
+
+
 def test_carry_forward_copies_answers_as_drafts(client, session, setup):
     aid = setup["aid"]
     _complete_everything(client, session, aid)
+    as_user(client, PREPARER)
+    client.get("/")
+    as_user(client, ADMIN)
     client.post(f"/assessments/{aid}/assign", data={"item_id": item_id(session, aid, "IAM-01"),
                                                      "assignee": PREPARER})
     client.post(f"/assessments/{aid}/issues", data={
         "item_id": item_id(session, aid, "IAM-01"), "node_id": node_id(session, aid),
         "title": "Break-glass account", "severity": "high"})
+    _close(client, aid)
     tenant = session.scalar(select(ScopeNode).where(ScopeNode.kind == "tenant"))
     resp = client.post("/assessments/controls", data={
         "name": "Q1 2027", "library_id": setup["lid"], "root_id": tenant.id, "start_from": aid},
@@ -488,7 +500,7 @@ def test_assignment_and_my_work(client, session, setup):
                        follow_redirects=False)
     assert "Assigned 1 control" in unquote(resp.headers["location"])
     resp = client.post(f"/assessments/{aid}/assign", data={"assignee": "nobody@x"}, follow_redirects=False)
-    assert "not an active user" in unquote(resp.headers["location"])
+    assert "not an active preparer" in unquote(resp.headers["location"])
 
     as_user(client, PREPARER)
     page = client.get("/my").text
@@ -526,3 +538,56 @@ def test_bulk_signoff_skips_own_and_stale(client, session, setup):
     states = {r.item.ref + "@" + r.node.name: r.review_state for r in session.scalars(select(Response))}
     assert states == {"IAM-01@Contoso tenant (demo)": "reviewed", "LOG-01@Contoso tenant (demo)": "prepared",
                       "IAM-01@mg-prod": "prepared"}
+
+
+
+def test_carry_forward_only_from_closed_assessment_of_same_library(client, session, setup):
+    tenant = session.scalar(select(ScopeNode).where(ScopeNode.kind == "tenant"))
+    new = {"name": "next", "library_id": setup["lid"], "root_id": tenant.id}
+    resp = client.post("/assessments/controls", data=new | {"start_from": setup["aid"]},
+                       follow_redirects=False)
+    assert "closed (attested)" in unquote(resp.headers["location"])  # source still open
+    _complete_everything(client, session, setup["aid"])
+    _close(client, setup["aid"])
+    other = aid_from(client.post("/libraries", data={"name": "Backup Standard"}, follow_redirects=False))
+    client.post(f"/libraries/{other}/import", data={"text": "ref,title\nIAM-01,Backups are tested\n"})
+    resp = client.post("/assessments/controls", data=new | {"library_id": other,
+                                                            "start_from": setup["aid"]},
+                       follow_redirects=False)
+    assert "same library" in unquote(resp.headers["location"])
+    resp = client.post("/assessments/controls", data=new | {"start_from": "abc"}, follow_redirects=False)
+    assert "Unknown assessment" in unquote(resp.headers["location"])
+    assert session.scalars(select(assessments.Assessment)).all().__len__() == 1  # nothing created
+
+
+def test_creator_of_carried_assessment_can_still_review(client, session, setup):
+    """Starting the next quarter (a carry-forward) is not authoring its answers."""
+    _complete_everything(client, session, setup["aid"])
+    _close(client, setup["aid"])
+    tenant = session.scalar(select(ScopeNode).where(ScopeNode.kind == "tenant"))
+    as_user(client, REVIEWER)
+    new = aid_from(client.post("/assessments/controls", data={
+        "name": "Q1", "library_id": setup["lid"], "root_id": tenant.id, "start_from": setup["aid"]},
+        follow_redirects=False))
+    root = "Contoso tenant (demo)"
+    as_user(client, PREPARER)
+    answer(client, session, new, "IAM-01", root,
+           version=current_version(session, new, "IAM-01", root), **COMPLETE)
+    transition(client, session, new, "IAM-01", root, "prepare")
+    as_user(client, REVIEWER)
+    resp = transition(client, session, new, "IAM-01", root, "review")
+    assert "signed off" in unquote(resp.headers["location"])
+
+
+def test_assign_refuses_closed_assessment_and_viewers(client, session, setup):
+    aid = setup["aid"]
+    as_user(client, VIEWER)
+    client.get("/")
+    as_user(client, ADMIN)
+    resp = client.post(f"/assessments/{aid}/assign", data={"assignee": VIEWER}, follow_redirects=False)
+    assert "not an active preparer" in unquote(resp.headers["location"])
+    assert client.post(f"/assessments/{aid}/assign", data={"item_id": "x", "assignee": ""}).status_code == 404
+    _complete_everything(client, session, aid)
+    _close(client, aid)
+    resp = client.post(f"/assessments/{aid}/assign", data={"assignee": ""}, follow_redirects=False)
+    assert "closed assessment" in unquote(resp.headers["location"])

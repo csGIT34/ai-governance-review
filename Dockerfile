@@ -25,6 +25,6 @@ USER app
 EXPOSE 8000
 # Local/compose: migrations + seeding run on start. On Azure Container Apps set
 # RUN_MIGRATIONS=false and run them as a Container Apps job with the command
-#   sh -c "alembic upgrade head && python -m app.seed"
+#   sh -c "alembic upgrade head && python -m app.seed && python -m app.grants"
 # before each rollout (see docs/AZURE_DEPLOYMENT.md).
 CMD ["sh", "-c", "if [ \"${RUN_MIGRATIONS:-true}\" = true ]; then alembic upgrade head && python -m app.seed; fi && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"]

@@ -28,9 +28,10 @@
   <label>Start from a previous assessment (optional)</label>
   <select name="start_from">
     <option value="">— Start empty —</option>
-    {% for p in previous %}<option value="{{ p.id }}">{{ p.name }} ({{ p.status }}{% if p.period_end %}, to {{ p.period_end | d }}{% endif %})</option>{% endfor %}
+    {% for p in previous %}<option value="{{ p.id }}">{{ p.name }} — {{ p.library_snapshot.name }}{% if p.period_end %} (to {{ p.period_end | d }}){% endif %}</option>{% endfor %}
   </select>
-  <p class="meta">Copies each answer's narrative, applicability and test procedure (and control assignments) as
+  <p class="meta">Closed assessments of the <strong>same library</strong> only. Copies each answer's narrative,
+    applicability and test procedure (and control assignments) as
     <strong>drafts</strong>, matched by control ref and subscription. Ratings, test results and exceptions start
     empty: they have to be re-established for the new period. Evidence is not copied.</p>
   <p class="meta">The controls and the scope tree are copied into the assessment now, so later edits to

@@ -150,6 +150,21 @@ def save(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
     return resp
 
 
+def precheck(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
+             node: AssessmentScopeNode):
+    """for_edit()'s checks without taking the assessment lock. Call it before slow outbound
+    work (GitHub, Azure) so a doomed request fails fast; then call for_edit() afterwards,
+    which locks and re-checks. Never hold the lock across network calls."""
+    if not auth.can(user, "preparer"):
+        raise Forbidden("Viewers can't edit responses.")
+    resp = find(db, item.id, node.id)
+    if reason := lock_reason(assessment, resp):
+        raise Locked(reason, resp)
+    if resp is None and (src := inherited_from(db, item, node)):
+        raise SaveError(f"This level inherits its answer from {src.name}. Choose "
+                        "'Answer differently here' first, or add the evidence there.")
+
+
 def for_edit(db: Session, user: User, assessment: Assessment, item: AssessmentItem,
              node: AssessmentScopeNode) -> Response:
     """The response for (item, node), created empty if needed, about to have its

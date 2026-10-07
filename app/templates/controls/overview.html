@@ -53,7 +53,7 @@
   <span class="meta">to</span>
   <select name="assignee" style="max-width:16rem"><option value="">(nobody)</option>
     {% for u in assignable %}<option value="{{ u.upn }}">{{ u.display_name or u.upn }}</option>{% endfor %}</select>
-  <button class="secondary">Assign</button>
+  <button class="secondary" data-confirm="Change the assignment of every control in the chosen category?">Assign</button>
 </form>
 {% endif %}
 

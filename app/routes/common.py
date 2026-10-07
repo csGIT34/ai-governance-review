@@ -188,17 +188,17 @@ async def add_evidence(aid: int, request: Request, user: User = Depends(current_
     item, node = item_and_node(db, a, form)
     back = back_to(form, a)
     try:
+        responses.precheck(db, user, a, item, node)  # fail fast without the lock
+        resolved = evidence.resolve(str(form.get("url", "")))  # may call GitHub: before the lock
         resp = responses.for_edit(db, user, a, item, node)
-        link = evidence.add_link(db, user, a, str(form.get("url", "")), str(form.get("title", "")),
-                                 response=resp)
+        link = evidence.add_link(db, user, a, title=str(form.get("title", "")), response=resp,
+                                 resolved=resolved)
     except (responses.SaveError, ValueError) as err:
         db.rollback()
         return redirect(back, error=f"{item.ref}: {getattr(err, 'message', err)}", anchor=anchor(item))
     db.commit()
-    if link.pinned is False:
-        return redirect(back, anchor=anchor(item), error=f"{item.ref}: " + (
-            link.message or "that repo link points at a branch, not a commit - it will change as "
-            "the branch moves. Use a permalink (press 'y' on the GitHub file page)."))
+    if link.problem:
+        return redirect(back, anchor=anchor(item), error=f"{item.ref}: {link.message}")
     return redirect(back, msg=f"{item.ref}: {link.message}" if link.message else "",
                     anchor=anchor(item))
 
@@ -242,13 +242,15 @@ async def upload_artifact(aid: int, request: Request, user: User = Depends(requi
     if (upload.size or 0) > config.MAX_UPLOAD_MB * 1024 * 1024:  # before reading it into memory
         return redirect(back, error=f"File is larger than {config.MAX_UPLOAD_MB} MB.")
     try:
-        resp = None
+        resp = item = node = None
         if form.get("item_id"):
             item, node = item_and_node(db, a, form)
-            resp = responses.for_edit(db, user, a, item, node)
+            responses.precheck(db, user, a, item, node)  # fail fast without the lock
+        # the blob upload is slow I/O: do it before taking the assessment lock
         art = evidence.store_artifact(db, user, a, upload.filename, await upload.read(),
                                       upload.content_type or "")
-        if resp is not None:
+        if item is not None:
+            resp = responses.for_edit(db, user, a, item, node)
             evidence.add_link(db, user, a, "", art.filename, response=resp, artifact=art)
     except (responses.SaveError, ValueError) as err:
         db.rollback()

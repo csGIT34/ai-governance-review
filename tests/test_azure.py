@@ -71,3 +71,29 @@ def test_readiness_probe(client, monkeypatch):
     monkeypatch.setattr(db, "_engine", broken)
     assert client.get("/health/ready").status_code == 503
     assert client.get("/health").status_code == 200  # liveness stays up
+
+
+
+@pytest.mark.skipif(not os.environ["TEST_DATABASE_URL"].startswith("postgresql"),
+                    reason="needs Postgres")
+def test_app_role_grants(database):
+    """app.grants as the schema owner: the app role can write data but never history."""
+    from app import grants
+    role = "govtest_app_role"
+    with database.begin() as conn:
+        if conn.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :r"), {"r": role}).scalar():
+            conn.execute(text(f"DROP OWNED BY {role}"))
+            conn.execute(text(f"DROP ROLE {role}"))
+        conn.execute(text(f"CREATE ROLE {role} NOLOGIN"))
+        conn.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num varchar(32))"))
+    assert grants.apply(database, role) and grants.apply(database, role)  # idempotent
+    with database.connect() as conn:
+        def can(table, priv):
+            return conn.execute(text("SELECT has_table_privilege(:r, :t, :p)"),
+                                {"r": role, "t": table, "p": priv}).scalar()
+        assert can("responses", "UPDATE") and can("audit_events", "INSERT")
+        assert not can("audit_events", "UPDATE") and not can("audit_events", "DELETE")
+        assert not can("alembic_version", "UPDATE") and can("alembic_version", "SELECT")
+    with database.begin() as conn:
+        conn.execute(text(f"DROP OWNED BY {role}"))
+        conn.execute(text(f"DROP ROLE {role}"))

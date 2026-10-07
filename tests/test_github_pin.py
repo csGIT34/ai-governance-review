@@ -78,3 +78,34 @@ def test_pinning_through_the_app(client, session, api):
     assert "Pinned" in resp.headers["location"].replace("+", " ")
     link = session.scalar(select(EvidenceLink))
     assert link.pinned and SHA in link.url
+
+
+
+def test_encoded_paths_not_double_encoded(api, monkeypatch):
+    calls = []
+    def fake(path):
+        calls.append(path)
+        return (200, {"sha": SHA}) if "/commits/" in path else (200, {})
+    monkeypatch.setattr(github, "_get", fake)
+    p = github.pin("https://ghe.corp/org/audit/blob/main/evidence/Access%20Review.md")
+    assert p.pinned and calls[1].startswith("/repos/org/audit/contents/evidence/Access%20Review.md")
+    assert p.url.endswith(f"/blob/{SHA}/evidence/Access%20Review.md")
+
+
+def test_dot_segments_never_reach_the_api(api):
+    p = github.pin("https://ghe.corp/org/audit/blob/main/../../../../user")
+    assert p.pinned is False and "invalid path" in p.message and not api
+
+
+def test_commit_link_stays_pinned_when_api_fails(api, monkeypatch):
+    from app.services import evidence
+    monkeypatch.setattr(github, "_get", lambda path: (503, {}))
+    r = evidence.resolve(f"https://ghe.corp/org/audit/blob/{SHA}/evidence/mfa.md")
+    assert r.pinned is True and r.problem and "couldn't confirm" in r.message
+
+
+def test_only_evidence_repo_links_go_to_the_api(api, monkeypatch):
+    from app.services import evidence
+    monkeypatch.setattr(config, "EVIDENCE_REPO_BASE", "https://ghe.corp/org/audit")
+    r = evidence.resolve("https://ghe.corp/org/other-repo/blob/main/x.md")
+    assert r.pinned is False and not api  # flagged as a branch link, GitHub not called

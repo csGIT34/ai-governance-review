@@ -225,7 +225,8 @@ def new_controls_form(request: Request, user: User = Depends(require("preparer")
                       db: Session = Depends(get_session)):
     libs = db.scalars(select(Library).where(Library.kind == "controls").order_by(Library.name)).all()
     roots = [(n, d) for n, d in scope.tree(db) if n.active and n.kind != "subscription"]
-    previous = db.scalars(select(Assessment).where(Assessment.kind == "controls")
+    previous = db.scalars(select(Assessment).where(Assessment.kind == "controls",
+                                                   Assessment.status == "closed")
                           .order_by(Assessment.created_at.desc())).all()
     return render(request, "controls/new.html", {"libraries": libs, "roots": roots,
                                                  "previous": previous})
@@ -241,11 +242,15 @@ def create_controls(name: str = Form(...), library_id: int = Form(...), root_id:
         return redirect("/assessments/new/controls", error="Pick a controls library and a scope.")
     if not any(i.active for i in lib.items):
         return redirect("/assessments/new/controls", error=f"{lib.name} has no active controls yet.")
-    prev = db.get(Assessment, int(start_from)) if start_from else None
-    if prev is not None and prev.kind != "controls":
-        prev = None
+    prev = db.get(Assessment, int(start_from)) if start_from.isdigit() else None
+    if start_from and prev is None:
+        return redirect("/assessments/new/controls", error="Unknown assessment to start from.")
     a = assessments.create_controls(db, user, lib, name.strip(), root, _date(period_start), _date(period_end))
-    carried = assessments.carry_forward(db, user, a, prev) if prev else 0
+    try:
+        carried = assessments.carry_forward(db, user, a, prev) if prev else 0
+    except assessments.CarryForwardError as err:
+        db.rollback()
+        return redirect("/assessments/new/controls", error=str(err))
     db.commit()
     msg = "Assessment created. Controls and scope are frozen as of now; later library edits don't change it."
     if prev:
@@ -307,7 +312,9 @@ def item_page(aid: int, iid: int, request: Request, node: int | None = None,
     idx = [i.id for i in a.items].index(iid)
     issues = db.scalars(select(Issue).where(Issue.assessment_item_id == iid).order_by(Issue.id)).all()
     earlier_issues = db.scalars(select(Issue).join(AssessmentItem, Issue.assessment_item_id == AssessmentItem.id)
+                                .join(Assessment, Issue.assessment_id == Assessment.id)
                                 .where(AssessmentItem.ref == item.ref, Issue.assessment_id != aid,
+                                       Assessment.library_id == a.library_id,
                                        Issue.status != "closed").order_by(Issue.id)).all()
     here = own.get(current.id)
     carried = db.get(Response, here.carried_from_id) if here and here.carried_from_id else None
@@ -372,10 +379,11 @@ def revert_to_inherited(aid: int, iid: int, node_id: int = Form(...),
         return redirect(back, error="Only draft answers can be removed - reopen it first.")
     linked = (db.scalar(select(EvidenceLink.id).where(EvidenceLink.response_id == r.id))
               or db.scalar(select(Comment.id).where(Comment.response_id == r.id))
-              or db.scalar(select(Issue.id).where(Issue.response_id == r.id)))
+              or db.scalar(select(Issue.id).where(Issue.response_id == r.id))
+              or db.scalar(select(Response.id).where(Response.carried_from_id == r.id)))
     if linked:
-        return redirect(back, error="This answer has evidence, comments or issues attached, so it "
-                                    "stays. Edit it instead.")
+        return redirect(back, error="This answer has evidence, comments or issues attached (or was "
+                                    "carried forward), so it stays. Edit it instead.")
     snapshot = {f: (getattr(r, f), None) for f in responses.FIELDS["controls"] if getattr(r, f)}
     audit.record(db, user.upn, "delete", r, snapshot, note="reverted to inherited answer")
     db.delete(r)

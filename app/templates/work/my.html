@@ -64,5 +64,5 @@
     <td class="meta">{{ i.due_date | d }}</td></tr>
   {% endfor %}
 </table>
-{% else %}<p class="meta">None (matched on your sign-in name or display name in the issue's owner field).</p>{% endif %}
+{% else %}<p class="meta">None (issues whose owner field is your sign-in name, {{ user.upn }}).</p>{% endif %}
 {% endblock %}

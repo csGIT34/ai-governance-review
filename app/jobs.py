@@ -30,13 +30,15 @@ def notify_due_issues(session: Session, today: date | None = None) -> int:
                     facts=[(f"{i.ref} {i.title}"[:80],
                             f"{i.owner or 'no owner'} · due {i.due_date}"
                             + (" · OVERDUE" if i.due_date < today else "")) for i in issues[:25]],
-                    path="/issues")
+                    path="/issues", raise_errors=True)
     return len(issues)
 
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["due-issues"]:
         sys.exit("usage: python -m app.jobs due-issues")
+    if not notify.enabled():  # a scheduled job that can't notify should show as failed
+        sys.exit("TEAMS_WEBHOOK_URL is not set")
     db.init_engine()
     with db.SessionLocal() as s:
-        print(f"{notify_due_issues(s)} issue(s) due or overdue")
+        print(f"{notify_due_issues(s)} issue(s) due or overdue")  # raises (exit 1) if sending fails

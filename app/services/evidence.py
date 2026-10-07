@@ -3,6 +3,7 @@ import hashlib
 import mimetypes
 import re
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
@@ -30,28 +31,59 @@ def classify(url: str) -> tuple[str, bool | None]:
     return "repo", bool(m and FULL_SHA.match(m.group(1)))
 
 
-def add_link(db: Session, user: User, assessment: Assessment, url: str, title: str = "",
+@dataclass
+class Resolved:
+    """An evidence URL after validation and (optionally) pinning via the GitHub API."""
+    url: str
+    kind: str
+    pinned: bool | None
+    message: str = ""
+    problem: bool = False  # show message as a warning
+
+
+UNPINNED = ("that repo link points at a branch, not a commit - it will change as the branch "
+            "moves. Use a permalink (press 'y' on the GitHub file page).")
+
+
+def resolve(url: str) -> Resolved:
+    """Validate a URL and, for evidence-repo links, pin it to a commit when the GitHub API is
+    configured. May call GitHub (slow): do it before taking the assessment lock."""
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("Evidence links must start with http:// or https://")
+    kind, pinned = classify(url)
+    if kind != "repo":
+        return Resolved(url, kind, None)
+    in_evidence_repo = (not config.EVIDENCE_REPO_BASE
+                        or url.startswith(config.EVIDENCE_REPO_BASE + "/"))
+    result = github.pin(url) if in_evidence_repo else github.Pin(url, None)
+    if result.pinned is None:  # not checked
+        return Resolved(url, kind, pinned, "" if pinned else UNPINNED, problem=not pinned)
+    if result.pinned:
+        return Resolved(result.url, kind, True, result.message)
+    if pinned:  # names a commit already; GitHub just couldn't confirm it
+        return Resolved(url, kind, True, f"Pinned to a commit, but GitHub couldn't confirm it: "
+                                         f"{result.message}", problem=True)
+    return Resolved(url, kind, False, result.message or UNPINNED, problem=True)
+
+
+def add_link(db: Session, user: User, assessment: Assessment, url: str = "", title: str = "",
              response: Response | None = None, issue: Issue | None = None,
-             artifact: Artifact | None = None, note: str = "") -> EvidenceLink:
-    """Add an evidence link. Repo links are pinned to a commit when the GitHub API is
-    configured. The returned link has a transient `.message` for the user (pinning result)."""
-    url, message = url.strip(), ""
+             artifact: Artifact | None = None, note: str = "",
+             resolved: Resolved | None = None) -> EvidenceLink:
+    """Add an evidence link (an artifact, or a URL - pass `resolved` from resolve() when it was
+    computed before taking the lock). The returned link carries transient `.message` and
+    `.problem` for the user."""
     if artifact is not None:
-        kind, pinned = "artifact", None
-    else:
-        if not url.startswith(("http://", "https://")):
-            raise ValueError("Evidence links must start with http:// or https://")
-        kind, pinned = classify(url)
-        if kind == "repo":
-            result = github.pin(url)
-            if result.pinned is not None:
-                url, pinned, message = result.url, result.pinned, result.message
+        resolved = Resolved(url.strip(), "artifact", None)
+    elif resolved is None:
+        resolved = resolve(url)
     link = EvidenceLink(assessment_id=assessment.id, response_id=response.id if response else None,
-                        issue_id=issue.id if issue else None, kind=kind, url=url,
+                        issue_id=issue.id if issue else None, kind=resolved.kind, url=resolved.url,
                         title=title.strip()[:500], artifact_id=artifact.id if artifact else None,
-                        pinned=pinned, added_by=user.upn)
-    audit.create(db, user.upn, link, note="; ".join(x for x in (note, message) if x))
-    link.message = message
+                        pinned=resolved.pinned, added_by=user.upn)
+    audit.create(db, user.upn, link, note="; ".join(x for x in (note, resolved.message) if x))
+    link.message, link.problem = resolved.message, resolved.problem
     return link
 
 

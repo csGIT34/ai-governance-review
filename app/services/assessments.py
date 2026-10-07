@@ -198,11 +198,24 @@ def close_blockers(db: Session, a: Assessment) -> dict:
 CARRY_FIELDS = ("status", "narrative", "test_procedure")
 
 
+class CarryForwardError(Exception):
+    pass
+
+
 def carry_forward(db: Session, user: User, new: Assessment, prev: Assessment) -> int:
     """Start `new` from `prev`: for every control (matched by ref) and scope node (matched by
     the underlying ScopeNode) answered in `prev`, create a draft answer with the narrative,
-    applicability and test procedure, linked via carried_from_id. Assignees carry over too.
-    Returns the number of answers created."""
+    applicability and test procedure, linked via carried_from_id. Assignees carry over if they
+    can still prepare. Returns the number of answers created.
+
+    Only from a closed (attested) assessment of the same library: its answers are final, and
+    the same ref means the same control. Copies are logged as 'carry_forward', not as edits by
+    `user`, so whoever starts the new assessment can still review the answers."""
+    if prev.kind != "controls" or prev.library_id != new.library_id:
+        raise CarryForwardError("Carry forward only works from an assessment of the same library.")
+    if prev.status != "closed":
+        raise CarryForwardError("Carry forward only works from a closed (attested) assessment.")
+    can_prepare = {u for u in db.scalars(select(User.upn).where(User.active, User.role != "viewer"))}
     prev_items = {i.ref: i for i in prev.items}
     new_nodes = {n.scope_node_id: n for n in new.scope_nodes if n.scope_node_id}
     prev_nodes = {n.id: n for n in prev.scope_nodes}
@@ -212,7 +225,7 @@ def carry_forward(db: Session, user: User, new: Assessment, prev: Assessment) ->
         old_item = prev_items.get(item.ref)
         if old_item is None:
             continue
-        if old_item.assignee and not item.assignee:
+        if old_item.assignee in can_prepare and not item.assignee:
             audit.apply_changes(db, user.upn, item, {"assignee": old_item.assignee},
                                 note=f"carried forward from assessment {prev.id}")
         for old_node_id, old in by_item.get(old_item.id, {}).items():
@@ -221,9 +234,9 @@ def carry_forward(db: Session, user: User, new: Assessment, prev: Assessment) ->
                 continue
             audit.create(db, user.upn, Response(
                 assessment_id=new.id, assessment_item_id=item.id, scope_node_id=target.id,
-                updated_by=user.upn, carried_from_id=old.id,
+                updated_by="", carried_from_id=old.id,
                 **{f: getattr(old, f) for f in CARRY_FIELDS}),
-                note=f"carried forward from assessment {prev.id}")
+                note=f"carried forward from assessment {prev.id}", action="carry_forward")
             created += 1
     db.flush()
     return created

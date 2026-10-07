@@ -70,9 +70,9 @@ DEMO_SCOPE = [  # (azure_id, kind, name, parent azure_id)
 
 DEMO_QUERIES = {
     "CLD-DATA-01": "resources\n| where type =~ 'microsoft.storage/storageaccounts'\n"
-                   "| project subscriptionId, name, allowBlobPublicAccess = properties.allowBlobPublicAccess",
+                   "| project id, subscriptionId, name, allowBlobPublicAccess = properties.allowBlobPublicAccess",
     "CLD-VULN-01": "securityresources\n| where type == 'microsoft.security/pricings'\n"
-                   "| project subscriptionId, plan = name, tier = properties.pricingTier",
+                   "| project id, subscriptionId, plan = name, tier = properties.pricingTier",
 }
 
 

@@ -70,19 +70,27 @@ workload; `DefaultAzureCredential` needs it to pick a user-assigned identity.
   | `privatelink.vaultcore.azure.net` | Key Vault (if used) |
   | `privatelink.postgres.database.azure.com` (private endpoint) or `<server>.private.postgres.database.azure.com` (VNet integration) | Postgres |
 
-- **Egress allow-list** for the Container Apps subnet (firewall / UDR / NSG):
+- **Egress allow-list** for the Container Apps subnet (firewall / UDR). Platform requirements,
+  per Microsoft's "Use Azure Firewall with Azure Container Apps" (re-check it, it changes):
 
   | Destination | Needed for |
   |---|---|
-  | `login.microsoftonline.com`, `login.windows.net` | Easy Auth (OIDC metadata, token validation) |
+  | `mcr.microsoft.com`, `*.data.mcr.microsoft.com` (or service tags `MicrosoftContainerRegistry`, `AzureFrontDoorFirstParty`) | **all scenarios**: platform images |
+  | `packages.aks.azure.com`, `acs-mirror.azureedge.net` | **all scenarios**: underlying AKS / CNI binaries |
+  | `*.identity.azure.net`, `login.microsoftonline.com`, `*.login.microsoftonline.com`, `*.login.microsoft.com` (or tag `AzureActiveDirectory`) | managed identity, and Easy Auth (OIDC metadata, token validation) |
+  | `<registry>.azurecr.io`, `*.blob.core.windows.net`, `login.microsoft.com` (or tags `AzureContainerRegistry`, `AzureActiveDirectory`) | image pulls; not needed through the firewall if the registry is reached by private endpoint |
+  | `<vault>.vault.azure.net`, `login.microsoft.com` (or tag `AzureKeyVault`) | Key Vault secret references (private endpoint recommended) |
+  | Log Analytics ingestion (tag `AzureMonitor`) | environment logs |
+
+  Application requirements:
+
+  | Destination | Needed for |
+  |---|---|
   | `management.azure.com` | scope sync, Resource Graph evidence, AI catalog |
   | your GitHub Enterprise API host | evidence-link pinning (if `GITHUB_TOKEN` set) |
   | `*.logic.azure.com` / `*.environment.api.powerplatform.com` | Teams Workflows webhook (if used) |
   | `learn.microsoft.com`, `azure.microsoft.com`, `www.microsoft.com`, Google terms pages | AI review reference-doc snapshots (optional; the feature reports errors without them) |
   | `aiplatform.googleapis.com` | AI review GCP enrichment (optional) |
-
-  Managed identity tokens come from the platform's local identity endpoint, so they need no
-  egress.
 
 ## 4. Container registry
 
@@ -104,8 +112,8 @@ disabled, AcrPull for both identities. A shared corporate ACR works the same way
 | Immutability | time-based retention policy on `artifacts`, retention = your evidence retention period (e.g. 7 years). Create it **unlocked**, verify uploads work, then lock it |
 
 The app only ever creates new blobs (never overwrites or deletes), so a locked policy is
-compatible. It tries to create the container at start and tolerates 403/409, so the IaC must
-create it.
+compatible. It tries to create the container on first use and tolerates 403/409, so the IaC
+must create it.
 
 ## 6. PostgreSQL Flexible Server
 
@@ -121,28 +129,39 @@ create it.
 | TLS | `require_secure_transport` on (default) |
 | Database | `governance` |
 
-### Database roles (one-time SQL, as the Entra admin, connected to `governance`)
+### Database roles (one-time, as the Entra admin)
+
+Only a table's owner can grant on it, and the tables are created (and owned) by
+`id-governance-migrate`. So the Entra admin only creates the two roles and lets the migration
+identity create objects; the migration job then grants the app role what it needs
+(`python -m app.grants`, idempotent, every run).
 
 ```sql
--- 1. Before the first migration
-SELECT * FROM pgaadauth_create_principal('id-governance-migrate', false, false);
-SELECT * FROM pgaadauth_create_principal('id-governance-app', false, false);
-GRANT CREATE, USAGE ON SCHEMA public TO "id-governance-migrate";
+-- connected to the "postgres" database: create roles for the two managed identities.
+-- Prefer the _with_oid variant: it binds to the identity's object (principal) id, not just its name.
+SELECT * FROM pgaadauth_create_principal_with_oid('id-governance-migrate', '<migrate principal id>', 'service', false, false);
+SELECT * FROM pgaadauth_create_principal_with_oid('id-governance-app', '<app principal id>', 'service', false, false);
 
--- 2. After the first successful migration job (tables are owned by id-governance-migrate)
+-- connected to the "governance" database:
+GRANT CREATE, USAGE ON SCHEMA public TO "id-governance-migrate";
+```
+
+What `app.grants` applies as `id-governance-migrate` (for reference; `APP_DB_ROLE` names the app role):
+
+```sql
 GRANT USAGE ON SCHEMA public TO "id-governance-app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "id-governance-app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "id-governance-app";
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_events FROM "id-governance-app";
--- future tables from later migrations
-ALTER DEFAULT PRIVILEGES FOR ROLE "id-governance-migrate" IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "id-governance-app";
-ALTER DEFAULT PRIVILEGES FOR ROLE "id-governance-migrate" IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO "id-governance-app";
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version FROM "id-governance-app";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "id-governance-app";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "id-governance-app";
 ```
 
 The migration also installs triggers that reject UPDATE/DELETE/TRUNCATE on `audit_events`
-for every role, including the owner.
+for every role, including the owner. Verify the role setup against Microsoft's current
+"Manage Microsoft Entra roles in Azure Database for PostgreSQL" documentation when you
+implement it.
 
 ## 7. Entra ID app registration (Easy Auth)
 
@@ -198,7 +217,7 @@ If your azurerm version can't express Container Apps auth, use
 
 | Job | Trigger | Command | Identity / env |
 |---|---|---|---|
-| `caj-governance-migrate` | Manual (started by the pipeline before each rollout) | `sh -c "alembic upgrade head && python -m app.seed"` | `id-governance-migrate`; `DATABASE_URL` with user `id-governance-migrate`, `DATABASE_AUTH=entra`, `AZURE_CLIENT_ID` of that identity |
+| `caj-governance-migrate` | Manual (started by the pipeline before each rollout) | `sh -c "alembic upgrade head && python -m app.seed && python -m app.grants"` | `id-governance-migrate`; `DATABASE_URL` with user `id-governance-migrate`, `DATABASE_AUTH=entra`, `AZURE_CLIENT_ID` of that identity, `APP_DB_ROLE=id-governance-app` |
 | `caj-governance-due-issues` | Schedule, e.g. `0 7 * * 1-5` | `python -m app.jobs due-issues` | `id-governance-app`; same env as the app (needs `TEAMS_WEBHOOK_URL`) |
 
 Both use the same image tag as the app. Replica timeout 600s and retry limit 1 are enough.
@@ -206,14 +225,13 @@ Both use the same image tag as the app. Replica timeout 600s and retry limit 1 a
 ## 10. Rollout order
 
 1. Provision everything above (Terraform via your pattern modules).
-2. Run SQL step 1 (Postgres roles).
+2. Run the one-time role SQL (§6) as the Entra admin.
 3. Build and push the image: `docker build -t <acr>.azurecr.io/governance-review:<sha> .`
-4. Start `caj-governance-migrate` and wait for success.
-5. Run SQL step 2 (grants) - first deployment only.
-6. Deploy the Container App revision with the new image.
-7. Sign in as an `ADMIN_UPNS` user → **Users** → give reviewers/preparers their roles.
-8. **Libraries** → create the controls library (paste/import from the control document).
-9. **Scope → Sync from Azure.**
+4. Start `caj-governance-migrate` and wait for success (migrations, seeding, grants).
+5. Deploy the Container App revision with the new image.
+6. Sign in as an `ADMIN_UPNS` user → **Users** → give reviewers/preparers their roles.
+7. **Libraries** → create the controls library (paste/import from the control document).
+8. **Scope → Sync from Azure.**
 
 Every later release: build → push → migration job → new revision.
 

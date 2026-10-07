@@ -34,14 +34,15 @@ def record(db: Session, actor: str, action: str, obj, changes: dict | None = Non
     return event
 
 
-def create(db: Session, actor: str, obj, assessment_id: int | None = None, note: str = ""):
+def create(db: Session, actor: str, obj, assessment_id: int | None = None, note: str = "",
+           action: str = "create"):
     """Add obj and log its initial non-empty field values."""
     db.add(obj)
     db.flush()
     initial = {c.key: (None, getattr(obj, c.key)) for c in obj.__table__.columns
                if c.key not in ("id", "created_at", "updated_at", "version")
                and getattr(obj, c.key) not in (None, "", {}, [])}
-    record(db, actor, "create", obj, initial, assessment_id, note)
+    record(db, actor, action, obj, initial, assessment_id, note)
     return obj
 
 
